@@ -470,8 +470,19 @@
   // as mixed content, silently in some, with a console error in others. So a
   // relay must be wss://, and forcing it here beats a page that never
   // connects and never explains why.
+  // A relay passed in the URL is remembered, and beats the one baked in at
+  // build time. Tunnel hostnames change -- a quick tunnel gets a new one every
+  // restart -- and without this every change means a redeploy before any
+  // shared link works again. Visit once with ?relay=... and the plain URL
+  // keeps working afterwards.
   const wsPort = params.get("ws") || (Number(location.port) + 1);
-  const relay = params.get("relay") || window.NARRATOR_RELAY || "";
+  let saved = "";
+  try { saved = localStorage.getItem("narrator.relay") || ""; } catch (e) { saved = ""; }
+  const asked = params.get("relay") || "";
+  if (asked) {
+    try { localStorage.setItem("narrator.relay", asked); } catch (e) { /* private mode */ }
+  }
+  const relay = asked || window.NARRATOR_RELAY || saved || "";
   let socketUrl = relay || `ws://${location.hostname}:${wsPort}`;
   if (location.protocol === "https:" && socketUrl.startsWith("ws://")) {
     socketUrl = "wss://" + socketUrl.slice(5);
