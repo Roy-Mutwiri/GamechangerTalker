@@ -334,6 +334,50 @@ that is usually where the interesting question comes from.
 
 
 # ---------------------------------------------------------------------------
+# The chart the operator is actually looking at.
+#
+# The narrator knows the market as numbers, which is precise and blind: it
+# cannot see that the last four hours drew a wedge, that an indicator has
+# painted forty markers across the screen, or that a trendline just went on.
+# Those are the things the audience is looking at while the hosts talk.
+#
+# Two halves, independent:
+#
+#   seeing    a vision model describes the TradingView window every so often,
+#             and the description is handed to the hosts as context
+#   driving   the chart is moved -- timeframe, scroll, zoom -- so the picture
+#             changes during the show rather than sitting still for an hour
+#
+# THE NUMBERS RULE STILL HOLDS. Nothing read off the chart is ever spoken as a
+# number. This machine's chart is an OANDA feed reading several dollars away
+# from the MT5 account, and an image can be misread besides -- so the picture
+# contributes shape, and every figure still comes from the live feed.
+# ---------------------------------------------------------------------------
+[chart]
+enabled = false
+# "ollama" is a vision model on this machine: free, coarser, and slow enough
+# that it only works because a look happens once in a while. "anthropic" reads
+# a chart properly and is metered per image.
+backend = "ollama"
+model = "qwen2.5vl:7b"
+look_every_seconds = 90
+width = 1280
+# A description older than this is dropped rather than used. It would be
+# confidently wrong about the right-hand edge, which is the only part anyone
+# watching is looking at.
+max_age_seconds = 600
+
+# Driving types into the operator's live TradingView window. Focus is borrowed
+# for the keystroke and handed straight back, the action is skipped entirely if
+# a text caret is active in another application, and the vocabulary contains
+# nothing destructive -- timeframe, scroll, zoom, reset. Off by default: it is
+# still a program typing into an application somebody may be trading from.
+control_enabled = false
+control_min_gap_seconds = 20
+move_every_seconds = 240
+
+
+# ---------------------------------------------------------------------------
 # Warudo bridge (Milestone 5)
 # ---------------------------------------------------------------------------
 [warudo]

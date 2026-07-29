@@ -104,9 +104,26 @@ _CLAUSE = re.compile("(?<=[,;:.!?—–])\\s+")  # noqa: RUF001 -- both dashes, 
 # What a model writes when it means "laughs". Stripped from the spoken text and
 # replaced with an actual sound -- otherwise the voice reads the stage
 # direction out, which has happened.
+#
+# Both halves have to be generous, because a model is not consistent about
+# either one: it writes *laughs*, (laughs), [chuckling] and *laughs softly*
+# interchangeably, and it spells the sound itself anywhere from "haha" to
+# "hahahaha" to "ha ha ha". Missing one spelling is not a near miss -- the
+# voice says the word out loud.
+_ACT = r"laugh(?:s|ing)?|chuckl(?:e|es|ing)|giggl(?:e|es|ing)|snicker(?:s|ing)?|snort(?:s|ing)?"
+
 _LAUGH = re.compile(
-    r"\s*(\*+\s*(?:laughs?|chuckles?|laughing)\s*\*+|\(\s*(?:laughs?|chuckles?|laughing)\s*\)"
-    r"|\b(?:haha+|hehe+|heh)\b[.!,]?)\s*",
+    r"\s*("
+    # A stage direction, however it is bracketed, with or without its adverb.
+    r"\*+\s*(?:\w+\s+)?(?:" + _ACT + r")(?:\s+\w+)?\s*\*+"
+    r"|\(\s*(?:\w+\s+)?(?:" + _ACT + r")(?:\s+\w+)?\s*\)"
+    r"|\[\s*(?:\w+\s+)?(?:" + _ACT + r")(?:\s+\w+)?\s*\]"
+    # The sound, spelled: haha, hahaha, hahah, ha-ha, ha ha ha, hehe, hee hee,
+    # ahaha, heh, hah. Two syllables minimum for the repeated form, which is
+    # what keeps "aha" and a lone "Ha, right." as words -- they are not laughs,
+    # and a bare "ha" is more often a word than a laugh.
+    r"|\b(?:a?h[ae]e?h?(?:(?:,?[-\s])?h[ae]e?h?)+|he?h|hah)\b"
+    r")[.!?,]*\s*",
     re.I,
 )
 
@@ -148,7 +165,12 @@ def deliver(
     """Shape one line: its overall rate, and the contour inside it."""
     rate = _clamp(RATE.get((emote or "neutral").lower(), 1.0) * base_speed)
     shaped = punctuate(text, emote)
-    return Delivery(text=shaped, rate=rate, beats=plan(shaped, rate, rng))
+    # The beats are planned from the marked-up line -- that is where the laughs
+    # are -- but the line carried on the Delivery is the clean one. Anything
+    # that falls back to speaking `text` in one piece (a failed stitch, a line
+    # with nothing to shape) would otherwise read the stage direction out, which
+    # is the exact failure the markers exist to prevent.
+    return Delivery(text=spoken_text(shaped), rate=rate, beats=plan(shaped, rate, rng))
 
 
 def plan(

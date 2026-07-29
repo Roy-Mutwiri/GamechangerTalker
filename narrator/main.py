@@ -22,6 +22,7 @@ import argparse
 import asyncio
 import logging
 import logging.handlers
+import os
 import random
 import statistics
 import sys
@@ -272,6 +273,29 @@ class Narrator:
         # library runs the whole stream exactly as it did before.
         self.hosts = build_conversation(cfg)
         self.briefing = Briefing(cfg, adapter)
+        # The hosts' eyes on the operator's chart, and their hands on it. Both
+        # inert unless switched on in config: a stream that has never seen a
+        # chart is the normal case and everything works without them.
+        self.eyes: Any = None
+        self.chart: Any = None
+        if cfg.chart.enabled:
+            from narrator.market.chart import ChartEyes
+
+            self.eyes = ChartEyes(
+                model=cfg.chart.model,
+                api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+                backend=cfg.chart.backend,
+                every_seconds=cfg.chart.look_every_seconds,
+                width=cfg.chart.width,
+            )
+        if cfg.chart.control_enabled:
+            from narrator.market.chart_control import ChartControl
+
+            self.chart = ChartControl(min_gap_seconds=cfg.chart.control_min_gap_seconds)
+        # What the chart was last made to do, so the hosts can be told about it
+        # once and not every turn for the next ten minutes.
+        self._chart_note = ""
+        self._chart_moved_at = 0.0
         self.rng = random.Random()
         # True once two characters are actually on stage. Until then the
         # viseme stream keeps its single-character prefix and nothing changes.
@@ -453,7 +477,8 @@ class Narrator:
             # spoken. This is what makes the conversation feel instant: a turn
             # takes about a second to write and about eight to say, so the
             # model is never the thing anybody is waiting for.
-            self.hosts.prime(facts, now, self.briefing.text(now, facts))
+            self._drive_chart()
+            self.hosts.prime(facts, now, self._context(now, facts))
 
             # One line at a time. While the mouth is busy nothing new is
             # chosen -- a line picked now and spoken in forty seconds would
@@ -833,6 +858,76 @@ class Narrator:
             facts.update(trades.state.facts(now, facts.get("price")))
         return facts
 
+    # -- the chart ----------------------------------------------------------
+
+    def _context(self, now: datetime, facts: dict) -> str:
+        """What the hosts are told beyond the numbers.
+
+        The briefing (what the market has done) plus what is on the chart in
+        front of the operator, which is the thing the audience is looking at
+        while the pair talk.
+        """
+        parts = [self.briefing.text(now, facts)]
+        if self.eyes is not None:
+            seen = self.eyes.context(max_age=self.cfg.chart.max_age_seconds)
+            if seen:
+                parts.append(seen)
+        # Mentioned for a short window after it happens, then dropped. A chart
+        # move is news for about a minute; carried indefinitely it becomes a
+        # thing the pair keep announcing long after anyone has stopped caring.
+        if self._chart_note and (time.monotonic() - self._chart_moved_at) < 90.0:
+            parts.append(
+                f"THE CHART ON SCREEN JUST CHANGED: {self._chart_note}. "
+                "Mention it once, naturally, if it fits what you are saying. "
+                "Do not announce it like a menu."
+            )
+        return "\n\n".join(p for p in parts if p)
+
+    def _drive_chart(self) -> None:
+        """Move the chart occasionally, and look at it afterwards.
+
+        Deterministic rather than model-driven on purpose. Asking a 7B to emit
+        a command and parsing it back out is a second thing to get wrong, and
+        what the audience notices is that the picture changes at all -- not who
+        decided. The hosts are told what happened and react to it, which is the
+        same show from the other side.
+        """
+        if self.chart is None or not self.chart.ready():
+            self._maybe_look()
+            return
+        moved_ago = time.monotonic() - self._chart_moved_at
+        if self._chart_moved_at and moved_ago < self.cfg.chart.move_every_seconds:
+            self._maybe_look()
+            return
+
+        from narrator.market.chart_control import TIMEFRAMES
+
+        # Never the timeframe already on screen -- switching the fifteen-minute
+        # to the fifteen-minute is a keystroke that changes nothing and a line
+        # of dialogue about nothing.
+        options = [t for t in TIMEFRAMES if t != self.chart.timeframe]
+        action = self.chart.do(self.rng.choice(options))
+        if action is None:
+            self._maybe_look()
+            return
+        self._chart_note = f"someone pulled up {action.says}"
+        self._chart_moved_at = time.monotonic()
+        # Look straight after a move rather than waiting for the timer: the
+        # description on file is now of a chart nobody is looking at.
+        self._look_now()
+
+    def _maybe_look(self) -> None:
+        if self.eyes is not None and self.eyes.due():
+            self._look_now()
+
+    def _look_now(self) -> None:
+        """Fire a look in the background. Never blocks the narration loop."""
+        if self.eyes is None:
+            return
+        task = asyncio.create_task(self.eyes.look(), name="chart-look")
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
     def _switch_host_avatar(self, slot: str, pick: dict[str, Any]) -> bool:
         """Give one of the two hosts a different body, and rebuild the stage.
 
@@ -1115,6 +1210,7 @@ class Narrator:
             "voice": self.cfg.speech.voice,
             "audio": self.playback.device_name if self.playback.available else "off",
             "warudo": self.bridge.status(),
+            "chart": self._chart_status(),
             "cache": f"{self.engine.cache.hit_rate * 100:.0f}%",
             "density": f"{density * 100:.0f}%",
             "lines": str(self.stream.lines_spoken),
@@ -1123,6 +1219,17 @@ class Narrator:
             "account": self._account_status(facts),
             "hosts": self.hosts.status(),
         }
+
+    def _chart_status(self) -> str:
+        """Eyes and hands, in one field, because they fail independently."""
+        if self.eyes is None and self.chart is None:
+            return "off"
+        bits = []
+        if self.eyes is not None:
+            bits.append(f"sees {self.eyes.status()}")
+        if self.chart is not None:
+            bits.append(f"drives {self.chart.status()}")
+        return ", ".join(bits)
 
     def _account_status(self, facts: dict) -> str:
         """Whether the narrator can see the terminal the operator signed into.

@@ -337,6 +337,33 @@ class WebUIConfig(BaseModel):
     avatar_quality: int = 62
 
 
+class ChartConfig(BaseModel):
+    """The hosts' eyes and hands on the operator's TradingView window."""
+
+    enabled: bool = False
+    # "ollama" runs a vision model on this machine, free and coarse.
+    # "anthropic" reads the chart properly and is metered per image.
+    backend: str = "ollama"
+    model: str = "qwen2.5vl:7b"
+    # A look costs an image through a model, and a chart does not change
+    # character between one minute and the next -- the numbers do, and those
+    # come from the feed. Looking often would multiply the cost without
+    # changing a word anyone says.
+    look_every_seconds: float = 90.0
+    width: int = 1280
+    # A description older than this is dropped rather than used: it will be
+    # confidently wrong about the right-hand edge, which is the part anyone
+    # watching is actually looking at.
+    max_age_seconds: float = 600.0
+
+    # Driving the chart. This types into the operator's live TradingView.
+    control_enabled: bool = False
+    control_min_gap_seconds: float = 20.0
+    # How often the chart is moved of its own accord, in seconds. The point is
+    # a show where the picture changes, not a slideshow.
+    move_every_seconds: float = 240.0
+
+
 class PreflightConfig(BaseModel):
     require_cuda: bool = True
     required_capability: tuple[int, int] = (12, 0)
@@ -360,6 +387,7 @@ class Config(BaseModel):
     community: CommunityConfig = Field(default_factory=CommunityConfig)
     hosts: HostsConfig = Field(default_factory=HostsConfig)
     warudo: WarudoConfig = Field(default_factory=WarudoConfig)
+    chart: ChartConfig = Field(default_factory=ChartConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     webui: WebUIConfig = Field(default_factory=WebUIConfig)
     preflight: PreflightConfig = Field(default_factory=PreflightConfig)

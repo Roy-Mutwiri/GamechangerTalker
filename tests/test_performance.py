@@ -126,7 +126,30 @@ def test_every_clause_rate_stays_inside_what_kokoro_survives():
 
 @pytest.mark.parametrize(
     "written",
-    ["That's the bit, haha.", "Sure. *laughs* Not today.", "(laughs) No chance.", "heh"],
+    [
+        # A model is not consistent about how it spells a laugh, and every
+        # spelling it reaches for has to land as a sound. One that slips
+        # through is not a near miss -- the voice says the word.
+        "That's the bit, haha.",
+        "Hahaha, no.",
+        "Ha ha ha.",
+        "hahahaha!",
+        "That's funny. Hahah.",
+        "ha-ha",
+        "hehe",
+        "hee hee",
+        "heh",
+        "Hah!",
+        "Ahahaha!",
+        "Sure. *laughs* Not today.",
+        "(laughs) No chance.",
+        "[laughs] nope.",
+        "*laughs softly*",
+        "(chuckles)",
+        "[chuckling]",
+        "*snorts*",
+        "(giggles)",
+    ],
 )
 def test_written_laughter_becomes_a_sound_not_a_word(written):
     """Spelled out, a speech model says "ha ha" -- which is a voice reading a
@@ -134,8 +157,28 @@ def test_written_laughter_becomes_a_sound_not_a_word(written):
     assert any(b.kind == "chuckle" for b in performance.plan(written, 1.0))
 
 
+@pytest.mark.parametrize(
+    "written",
+    ["That's the bit, haha.", "Hahaha, no.", "*laughs softly*", "[chuckling] right."],
+)
+def test_no_spelling_of_a_laugh_survives_into_the_spoken_line(written):
+    """Whatever reaches the synthesiser must be free of it, in every form."""
+    left = performance.spoken_text(written).lower()
+    assert "ha" not in left.replace("that", "").replace("what", "")
+    assert "laugh" not in left and "chuckl" not in left
+
+
 def test_the_transcript_never_shows_the_stage_direction():
     assert performance.spoken_text("Sure. *laughs* Not today.") == "Sure. Not today."
+
+
+def test_the_delivery_carries_the_clean_line_not_the_marked_up_one():
+    """`Delivery.text` is what gets spoken whenever the stitched read falls
+    back to one piece. If the markers are still in it, that fallback is a voice
+    reading "laughs" out loud -- the failure the markers exist to prevent."""
+    delivery = performance.deliver("Sure. *laughs* Not today.", None)
+    assert delivery.text == "Sure. Not today."
+    assert any(b.kind == "chuckle" for b in delivery.beats)
 
 
 def test_a_laugh_does_not_swallow_the_words_around_it():
@@ -144,7 +187,24 @@ def test_a_laugh_does_not_swallow_the_words_around_it():
     assert "Sure." in spoken and "Not today." in spoken
 
 
-@pytest.mark.parametrize("text", ["Behind the shale rally.", "What a hash."])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Behind the shale rally.",
+        "What a hash.",
+        # The widened net has to stop at words. "He laughs at the chart." is a
+        # sentence about laughing, not a stage direction, and a bare "Ha," or
+        # "Aha," is a reaction rather than a laugh -- swallowing either one
+        # would cut words out of the line.
+        "He laughs at the chart.",
+        "She chuckles when it is actually funny.",
+        "Aha, there it is.",
+        "Ha, right.",
+        "He hedged ahead of the print.",
+        "Half a lot, and he hit the bid.",
+        "The Sahara trade, behind the curve.",
+    ],
+)
 def test_ordinary_words_are_not_mistaken_for_laughing(text):
     assert not any(b.kind == "chuckle" for b in performance.plan(text, 1.0))
 
