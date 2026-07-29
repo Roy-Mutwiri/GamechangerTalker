@@ -26,6 +26,22 @@
     overflow:hidden;
   }
   .app{height:100vh;display:grid;grid-template-columns:400px 1fr;gap:14px;padding:14px}
+
+  /* ---------- stage view ----------
+     ?view=stage, and the /stage route on the hosted copy. Everything but the
+     characters goes: no transcript, no facts, no controls. This is the view
+     that goes in an OBS browser source or gets shared with someone who wants
+     to watch the pair rather than operate them. */
+  body.stageonly .app{grid-template-columns:1fr;padding:0;gap:0}
+  body.stageonly .col:not(.stagecol){display:none}
+  body.stageonly .card.stage{border:0;border-radius:0;height:100vh;max-height:100vh}
+  body.stageonly .stage svg{max-height:none}
+  body.stageonly .avatarbar,
+  body.stageonly .camctl,
+  body.stageonly .viewtoggle{display:none}
+  /* The connection badge stays: a frozen picture with no way to tell whether
+     the feed died is worse than an empty one. */
+  body.stageonly .badge{opacity:.35}
   .card{
     background:var(--card);border:1px solid var(--line);border-radius:16px;
     backdrop-filter:blur(8px);
@@ -238,7 +254,7 @@
 <div class="app">
 
   <!-- ================= left: avatar ================= -->
-  <div class="col">
+  <div class="col stagecol">
     <div class="card stage">
       <div class="badge"><span class="dot" id="dot"></span><span id="conn">connecting</span></div>
       <div class="emote-tag" id="emoteTag">neutral</div>
@@ -695,7 +711,9 @@
   const stage = document.querySelector(".stage");
   const warudoImg = $("warudo");
   const viewToggle = $("viewToggle");
-  let wantLive = localStorage.getItem("narrator.view") !== "svg";
+  // A shared stage link showing the fallback SVG face is not what anyone
+  // opened it for, and there is no toggle in that view to fix it with.
+  let wantLive = stageOnly || localStorage.getItem("narrator.view") !== "svg";
   let lastFrameAt = 0, frameCount = 0, lastUrl = null;
 
   function applyView(){
@@ -1066,10 +1084,35 @@
   // ---------------------------------------------------------------- socket
   const params = new URLSearchParams(location.search);
   const wsPort = params.get("ws") || (Number(location.port) + 1);
+
+  // Where the live data comes from.
+  //
+  //   local     the narrator serves this page itself, and its websocket is on
+  //             the next port up. Nothing to configure.
+  //   hosted    the page is on Vercel and the narrator is on a machine
+  //             somewhere else, reached through a tunnel. The relay URL comes
+  //             from ?relay= or from NARRATOR_RELAY baked in at build time.
+  //
+  // A page served over https may not open a ws:// socket -- browsers block it
+  // as mixed content, silently in some, with a console error in others. So a
+  // relay must be wss://, and saying so here beats a page that just never
+  // connects and never explains why.
+  const relay = params.get("relay") || window.NARRATOR_RELAY || "";
+  let socketUrl = relay || `ws://${location.hostname}:${wsPort}`;
+  if (location.protocol === "https:" && socketUrl.startsWith("ws://")) {
+    socketUrl = "wss://" + socketUrl.slice(5);
+  }
+
+  // Stage view: characters only. Also switches the avatar panel to the Warudo
+  // render, since a shared stage link showing the fallback SVG face is not
+  // what anyone opened it for.
+  const stageOnly = (params.get("view") || "") === "stage";
+  if (stageOnly) document.body.classList.add("stageonly");
+
   let ws = null, retry = 800;
 
   function connect(){
-    ws = new WebSocket(`ws://${location.hostname}:${wsPort}`);
+    ws = new WebSocket(socketUrl);
     ws.onopen = () => {
       retry = 800;
       $("dot").classList.add("on");

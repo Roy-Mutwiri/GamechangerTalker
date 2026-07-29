@@ -11,6 +11,11 @@ htmlcov/
 logs/
 cache/
 
+# Built by scripts/build-web.mjs at deploy time, from narrator/ui/web/
+public/
+node_modules/
+.vercel/
+
 # Downloaded avatars are big binaries, not source
 avatars/
 

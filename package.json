@@ -1,0 +1,10 @@
+{
+  "name": "gamechanger-talker-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hosted copy of the Trade Fix Narrator browser UI. The app itself is Python; this only builds the page.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-web.mjs"
+  }
+}
