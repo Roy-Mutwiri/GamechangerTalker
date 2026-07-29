@@ -1,0 +1,315 @@
+[
+  {
+    "id": "price.drift",
+    "category": "price",
+    "priority": 3,
+    "when": "minutes_since_move > 15 and market_open",
+    "cooldown": 540,
+    "max_per_session": 13,
+    "variants": [
+      "Gold's at {price}, barely moved in {minutes_since_move}.",
+      "Still sitting around {price}. Quiet stretch.",
+      "{price} and going nowhere. {minutes_since_move} of chop.",
+      "We're parked at {price}. Nothing for {minutes_since_move} now."
+    ],
+    "emote": "neutral"
+  },
+  {
+    "id": "price.now",
+    "category": "price",
+    "priority": 2,
+    "when": "market_open",
+    "cooldown": 252,
+    "max_per_session": 32,
+    "variants": [
+      "Gold's at {price}.",
+      "{price} on gold right now.",
+      "We're trading {price}.",
+      "Price is {price} as we speak."
+    ]
+  },
+  {
+    "id": "price.up_on_day",
+    "category": "price",
+    "priority": 3,
+    "when": "direction == \"up\" and change_day > 3 and market_open",
+    "cooldown": 540,
+    "max_per_session": 16,
+    "variants": [
+      "Gold's {change_day} on the day, sitting at {price}.",
+      "We're {change_day} from the open. {price} now.",
+      "{price}, and that's {change_day} since the daily open.",
+      "Buyers have it {change_day} today."
+    ]
+  },
+  {
+    "id": "price.down_on_day",
+    "category": "price",
+    "priority": 3,
+    "when": "direction == \"down\" and change_day < -3 and market_open",
+    "cooldown": 540,
+    "max_per_session": 16,
+    "variants": [
+      "Gold's {change_day} on the day at {price}.",
+      "We're {change_day} from the open, trading {price}.",
+      "{price}, that's {change_day} since the day started.",
+      "Sellers have had it their way, {change_day} today."
+    ]
+  },
+  {
+    "id": "price.flat_day",
+    "category": "price",
+    "priority": 2,
+    "when": "direction == \"flat\" and market_open and stream_minutes > 5",
+    "cooldown": 720,
+    "max_per_session": 13,
+    "variants": [
+      "Basically flat on the day. {price} against an open of {day_open}.",
+      "Gold's gone nowhere today. Opened {day_open}, we're {price}.",
+      "Dead even on the session. {price}."
+    ]
+  },
+  {
+    "id": "price.big_day_move",
+    "category": "price",
+    "priority": 4,
+    "when": "change_day > 15 or change_day < -15",
+    "cooldown": 720,
+    "max_per_session": 13,
+    "variants": [
+      "That's a proper day. Gold's {change_day} from the open.",
+      "{change_day} on the day. Not a small session, this one.",
+      "We're {change_day} today, {price} now. Real movement."
+    ],
+    "emote": "surprised"
+  },
+  {
+    "id": "price.pct_day",
+    "category": "price",
+    "priority": 2,
+    "when": "market_open and stream_minutes > 10",
+    "cooldown": 900,
+    "max_per_session": 13,
+    "variants": [
+      "In percentage terms we're {pct_day} on the day.",
+      "That's {pct_day} for the session so far.",
+      "{pct_day} today, if you like it in percentages."
+    ]
+  },
+  {
+    "id": "price.session_change",
+    "category": "price",
+    "priority": 2,
+    "when": "market_open and session_minutes_in > 45",
+    "cooldown": 540,
+    "max_per_session": 16,
+    "variants": [
+      "Since this session opened we're {change_session}.",
+      "{change_session} this session, {price} now.",
+      "The session's given us {change_session} so far."
+    ]
+  },
+  {
+    "id": "price.day_high",
+    "category": "price",
+    "priority": 3,
+    "when": "market_open and day_high - price < 1 and day_range > 5",
+    "cooldown": 360,
+    "max_per_session": 16,
+    "variants": [
+      "We're right at the day's high, {day_high}.",
+      "Highs of the day here, {price}.",
+      "That's the top of the day, {day_high}."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "price.day_low",
+    "category": "price",
+    "priority": 3,
+    "when": "market_open and price - day_low < 1 and day_range > 5",
+    "cooldown": 360,
+    "max_per_session": 16,
+    "variants": [
+      "We're at the lows of the day, {day_low}.",
+      "Day's low is right here, {price}.",
+      "Bottom of the day's range, {day_low}."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "price.day_range",
+    "category": "price",
+    "priority": 2,
+    "when": "market_open and day_range > 3",
+    "cooldown": 720,
+    "max_per_session": 13,
+    "variants": [
+      "Today's range so far, {day_low} up to {day_high}. That's {day_range}.",
+      "{day_range} of range today. {day_low} to {day_high}.",
+      "High of {day_high}, low of {day_low}. {day_range} in between."
+    ]
+  },
+  {
+    "id": "price.mid_range",
+    "category": "price",
+    "priority": 1,
+    "when": "market_open and day_high - price > 2 and price - day_low > 2",
+    "cooldown": 720,
+    "max_per_session": 10,
+    "variants": [
+      "We're sitting in the middle of the day's range at {price}.",
+      "Nothing decided yet. {price}, mid range."
+    ]
+  },
+  {
+    "id": "price.wide_spread",
+    "category": "price",
+    "priority": 3,
+    "when": "spread > 0.6",
+    "cooldown": 540,
+    "max_per_session": 8,
+    "variants": [
+      "Spread's wide right now, {spread}. Careful with that.",
+      "Broker's showing {spread} of spread. That's not normal.",
+      "{spread} spread at the moment. Thin liquidity."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "price.normal_spread",
+    "category": "price",
+    "priority": 1,
+    "when": "spread < 0.35 and market_open",
+    "cooldown": 1440,
+    "max_per_session": 6,
+    "variants": [
+      "Spread's tight, {spread}. Book's healthy.",
+      "{spread} spread. Nice and clean."
+    ]
+  },
+  {
+    "id": "price.climbing",
+    "category": "price",
+    "priority": 3,
+    "when": "consecutive_bars > 3 and market_open",
+    "cooldown": 540,
+    "max_per_session": 13,
+    "variants": [
+      "{consecutive_bars} green candles in a row on the fifteen. {price}.",
+      "That's {consecutive_bars} up bars back to back. We're at {price}.",
+      "Buyers stringing them together, {consecutive_bars} in a row."
+    ]
+  },
+  {
+    "id": "price.sliding",
+    "category": "price",
+    "priority": 3,
+    "when": "consecutive_bars < -3 and market_open",
+    "cooldown": 540,
+    "max_per_session": 13,
+    "variants": [
+      "{consecutive_bars} red candles in a row on the fifteen. {price}.",
+      "That's {consecutive_bars} down bars back to back, now {price}.",
+      "Sellers have printed {consecutive_bars} in a row."
+    ]
+  },
+  {
+    "id": "price.above_open",
+    "category": "price",
+    "priority": 1,
+    "when": "market_open and price > day_open and change_day < 3",
+    "cooldown": 1080,
+    "max_per_session": 8,
+    "variants": [
+      "We're just above the daily open at {day_open}.",
+      "Slightly the right side of the open here, {price} against {day_open}."
+    ]
+  },
+  {
+    "id": "price.below_open",
+    "category": "price",
+    "priority": 1,
+    "when": "market_open and price < day_open and change_day > -3",
+    "cooldown": 1080,
+    "max_per_session": 8,
+    "variants": [
+      "We're just under the daily open at {day_open}.",
+      "A touch below the open, {price} against {day_open}."
+    ]
+  },
+  {
+    "id": "price.above_week_open",
+    "category": "price",
+    "priority": 2,
+    "when": "market_open and price > week_open + 5",
+    "cooldown": 1440,
+    "max_per_session": 6,
+    "variants": [
+      "For the week we're above the open. {week_open} then, {price} now.",
+      "Week's been kind to the buyers so far. Opened {week_open}, trading {price}."
+    ]
+  },
+  {
+    "id": "price.below_week_open",
+    "category": "price",
+    "priority": 2,
+    "when": "market_open and price < week_open - 5",
+    "cooldown": 1440,
+    "max_per_session": 6,
+    "variants": [
+      "We're under the weekly open of {week_open}, at {price}.",
+      "Week opened at {week_open}. We're {price} now, so sellers are ahead."
+    ]
+  },
+  {
+    "id": "price.snapshot",
+    "category": "price",
+    "priority": 2,
+    "when": "market_open and stream_minutes > 15",
+    "cooldown": 1440,
+    "max_per_session": 8,
+    "variants": [
+      "Price is {price}.",
+      "{price}, for anyone just joining."
+    ]
+  },
+  {
+    "id": "price.stuck_long",
+    "category": "price",
+    "priority": 3,
+    "when": "minutes_since_move > 45 and market_open",
+    "cooldown": 720,
+    "max_per_session": 10,
+    "variants": [
+      "{minutes_since_move} without a real move. {price} still.",
+      "It's been {minutes_since_move} of nothing. We're at {price}.",
+      "Patience today. {minutes_since_move} in the same pocket."
+    ],
+    "emote": "bored"
+  },
+  {
+    "id": "price.recovered",
+    "category": "price",
+    "priority": 3,
+    "when": "market_open and direction == \"up\" and price - day_low > 8",
+    "cooldown": 900,
+    "max_per_session": 10,
+    "variants": [
+      "We've come back nicely off the low at {day_low}. {price} now.",
+      "From {day_low} to {price}. That's a decent bounce."
+    ]
+  },
+  {
+    "id": "price.faded",
+    "category": "price",
+    "priority": 3,
+    "when": "market_open and direction == \"down\" and day_high - price > 8",
+    "cooldown": 900,
+    "max_per_session": 10,
+    "variants": [
+      "We've come off the high at {day_high}. {price} now.",
+      "From {day_high} down to {price}. That's been given back."
+    ]
+  }
+]

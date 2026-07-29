@@ -1,0 +1,33 @@
+# ---------------------------------------------------------------------------
+# Trade Fix Narrator - dependencies
+# ---------------------------------------------------------------------------
+#
+# TORCH MUST BE INSTALLED FIRST, FROM THE CUDA 12.8 INDEX.
+# The RTX 5080 is Blackwell (sm_120). Default PyPI torch wheels are built
+# without sm_120 kernels and will fail at runtime with:
+#     "no kernel image is available for execution on the device"
+#
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+#
+# Then:
+#   pip install -r requirements.txt
+#
+# See README.md and narrator/preflight.py.
+# ---------------------------------------------------------------------------
+
+# --- Milestone 1 (headless dry run) ----------------------------------------
+pydantic>=2.6            # config validation
+rich>=13.7               # console UI / dry-run transcript
+MetaTrader5>=5.0.45      # live market data (Windows only, attaches to terminal)
+
+# --- Milestone 3+ (speech) --------------------------------------------------
+kokoro>=0.9.4            # Kokoro-82M TTS (phoneme based)
+soundfile>=0.12          # wav read/write for the phrase cache
+sounddevice>=0.4.6       # audio output to the Windows default device
+numpy>=1.26
+
+# --- Milestone 5 (avatar) ---------------------------------------------------
+websockets>=12.0         # Warudo bridge
+
+# --- Dev --------------------------------------------------------------------
+pytest>=8.0

@@ -1,0 +1,260 @@
+[
+  {
+    "id": "bridge.price_only",
+    "category": "bridge",
+    "priority": 1,
+    "when": "True",
+    "cooldown": 420,
+    "max_per_session": 40,
+    "notes": "Bridges fire only after a long silence, when nothing else qualifies. Keep them short and always true.",
+    "variants": [
+      "{price}.",
+      "Gold, {price}.",
+      "Still {price}.",
+      "{price} on the board."
+    ]
+  },
+  {
+    "id": "bridge.watching",
+    "category": "bridge",
+    "priority": 1,
+    "when": "True",
+    "cooldown": 600,
+    "max_per_session": 30,
+    "variants": [
+      "Still watching.",
+      "We're here, watching it.",
+      "Eyes on the chart.",
+      "Nothing yet. Watching."
+    ]
+  },
+  {
+    "id": "bridge.quiet",
+    "category": "bridge",
+    "priority": 1,
+    "when": "True",
+    "cooldown": 600,
+    "max_per_session": 30,
+    "variants": [
+      "Quiet.",
+      "Nothing moving.",
+      "Still slow.",
+      "All quiet for now."
+    ]
+  },
+  {
+    "id": "bridge.level_check",
+    "category": "bridge",
+    "priority": 1,
+    "when": "market_open",
+    "cooldown": 600,
+    "max_per_session": 25,
+    "variants": [
+      "{nearest_level_dist} from {nearest_level}.",
+      "Nearest level, {nearest_level}.",
+      "{nearest_level} is the one to watch."
+    ]
+  },
+  {
+    "id": "bridge.day_change",
+    "category": "bridge",
+    "priority": 1,
+    "when": "market_open",
+    "cooldown": 600,
+    "max_per_session": 25,
+    "variants": [
+      "{change_day} on the day.",
+      "Day's change, {change_day}.",
+      "{price}, {change_day} from the open."
+    ]
+  },
+  {
+    "id": "bridge.session_check",
+    "category": "bridge",
+    "priority": 1,
+    "when": "market_open",
+    "cooldown": 900,
+    "max_per_session": 20,
+    "variants": [
+      "{session_minutes_in} into this session.",
+      "Still {session}.",
+      "{next_session} in {minutes_to_next_session}."
+    ]
+  },
+  {
+    "id": "bridge.range_check",
+    "category": "bridge",
+    "priority": 1,
+    "when": "market_open",
+    "cooldown": 900,
+    "max_per_session": 20,
+    "variants": [
+      "Day's range, {day_range}.",
+      "{day_low} to {day_high} so far.",
+      "Range is {day_range} today."
+    ]
+  },
+  {
+    "id": "bridge.breathing",
+    "category": "bridge",
+    "priority": 1,
+    "when": "True",
+    "cooldown": 900,
+    "max_per_session": 20,
+    "variants": [
+      "Let it come to us.",
+      "No rush.",
+      "We wait.",
+      "Patience."
+    ]
+  },
+  {
+    "id": "bridge.atr_check",
+    "category": "bridge",
+    "priority": 1,
+    "when": "market_open",
+    "cooldown": 1200,
+    "max_per_session": 15,
+    "variants": [
+      "Fifteen minute range, {atr_m15} on average.",
+      "Hourly average is {atr_h1}."
+    ]
+  },
+  {
+    "id": "bridge.since_move",
+    "category": "bridge",
+    "priority": 1,
+    "when": "market_open",
+    "cooldown": 900,
+    "max_per_session": 20,
+    "variants": [
+      "{minutes_since_move} without a move.",
+      "Flat for {minutes_since_move} now."
+    ]
+  },
+  {
+    "id": "bridge.spread_check",
+    "category": "bridge",
+    "priority": 1,
+    "when": "market_open",
+    "cooldown": 1500,
+    "max_per_session": 12,
+    "variants": [
+      "Spread's {spread}.",
+      "{spread} spread here."
+    ]
+  },
+  {
+    "id": "bridge.open_ref",
+    "category": "bridge",
+    "priority": 1,
+    "when": "market_open",
+    "cooldown": 1200,
+    "max_per_session": 15,
+    "variants": [
+      "Opened at {day_open}.",
+      "Day's open was {day_open}.",
+      "{day_open} was the open, {price} now."
+    ]
+  },
+  {
+    "id": "bridge.yesterday_ref",
+    "category": "bridge",
+    "priority": 1,
+    "when": "market_open",
+    "cooldown": 1200,
+    "max_per_session": 15,
+    "variants": [
+      "Yesterday, {pdl} to {pdh}.",
+      "{pdh} above, {pdl} below."
+    ]
+  },
+  {
+    "id": "bridge.asia_ref",
+    "category": "bridge",
+    "priority": 1,
+    "when": "market_open",
+    "cooldown": 1500,
+    "max_per_session": 12,
+    "variants": [
+      "Asia gave us {asian_range}.",
+      "Asian range, {asian_low} to {asian_high}."
+    ]
+  },
+  {
+    "id": "bridge.mm",
+    "category": "bridge",
+    "priority": 1,
+    "when": "True",
+    "cooldown": 1200,
+    "max_per_session": 15,
+    "variants": [
+      "Mm.",
+      "Right.",
+      "Okay.",
+      "Yeah."
+    ]
+  },
+  {
+    "id": "bridge.stream_time",
+    "category": "bridge",
+    "priority": 1,
+    "when": "True",
+    "cooldown": 1800,
+    "max_per_session": 10,
+    "variants": [
+      "{stream_minutes} live so far.",
+      "We've been on {stream_minutes}."
+    ]
+  },
+  {
+    "id": "bridge.candle_close",
+    "category": "bridge",
+    "priority": 1,
+    "when": "market_open",
+    "cooldown": 900,
+    "max_per_session": 20,
+    "variants": [
+      "{m15_seconds_left} to the fifteen minute close.",
+      "This candle closes in {m15_seconds_left}."
+    ]
+  },
+  {
+    "id": "bridge.still_here",
+    "category": "bridge",
+    "priority": 1,
+    "when": "True",
+    "cooldown": 1200,
+    "max_per_session": 15,
+    "variants": [
+      "Still with you.",
+      "I'm here.",
+      "We're still on."
+    ]
+  },
+  {
+    "id": "bridge.weekend_filler",
+    "category": "bridge",
+    "priority": 1,
+    "when": "not market_open",
+    "cooldown": 900,
+    "max_per_session": 20,
+    "variants": [
+      "Market's shut.",
+      "Nothing till Sunday.",
+      "Closed for the weekend."
+    ]
+  },
+  {
+    "id": "bridge.consecutive",
+    "category": "bridge",
+    "priority": 1,
+    "when": "market_open and consecutive_bars != 0",
+    "cooldown": 900,
+    "max_per_session": 20,
+    "variants": [
+      "{consecutive_bars} bars the same way.",
+      "Streak of {consecutive_bars}."
+    ]
+  }
+]

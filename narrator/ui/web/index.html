@@ -1,0 +1,1143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trade Fix Narrator</title>
+<style>
+  :root{
+    --bg:#0b0d12; --bg2:#11141c; --card:rgba(255,255,255,.035);
+    --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.14);
+    --ink:#e8eaf0; --dim:#8a90a2; --dim2:#5d6377;
+    --gold:#f5b942; --gold-dim:#8a6a26;
+    --up:#34d399; --down:#f87171; --blue:#60a5fa; --violet:#a78bfa;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(1200px 700px at 12% -10%, #1a2030 0%, transparent 60%),
+      radial-gradient(900px 600px at 100% 110%, #1c1726 0%, transparent 55%),
+      var(--bg);
+    color:var(--ink);
+    font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    overflow:hidden;
+  }
+  .app{height:100vh;display:grid;grid-template-columns:400px 1fr;gap:14px;padding:14px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:16px;
+    backdrop-filter:blur(8px);
+  }
+  .col{display:flex;flex-direction:column;gap:14px;min-height:0}
+
+  /* ---------- avatar ---------- */
+  .stage{
+    position:relative;flex:1;min-height:0;display:flex;align-items:center;
+    justify-content:center;overflow:hidden;
+    background:
+      radial-gradient(420px 420px at 50% 42%, rgba(245,185,66,.10), transparent 70%),
+      linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.01));
+  }
+  .stage svg{width:100%;height:100%;max-height:460px}
+  .badge{
+    position:absolute;top:14px;left:14px;display:flex;gap:6px;align-items:center;
+    font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--dim2);transition:.3s}
+  .dot.on{background:var(--up);box-shadow:0 0 10px var(--up)}
+  .emote-tag{
+    position:absolute;top:14px;right:14px;font-size:11px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--gold);opacity:0;transition:opacity .4s;
+    border:1px solid var(--gold-dim);border-radius:999px;padding:3px 10px;
+  }
+  .emote-tag.show{opacity:1}
+  /* Warudo render, mirrored in from its own window */
+  #warudo{
+    position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
+    background:#05070b;display:none;
+  }
+  .stage.live #warudo{display:block}
+  .stage.live svg{display:none}
+  .nowarudo{
+    position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    flex-direction:column;gap:6px;text-align:center;color:var(--dim2);font-size:13px;
+    background:#05070b;
+  }
+  .nowarudo span{font-size:11px;color:var(--dim2);opacity:.7}
+  .stage.wantlive:not(.live) .nowarudo{display:flex}
+  .stage.wantlive:not(.live) svg{display:none}
+  .viewtoggle{
+    position:absolute;bottom:82px;right:14px;z-index:3;
+    background:rgba(12,15,22,.85);border:1px solid var(--line2);color:var(--dim);
+    border-radius:999px;padding:5px 12px;font:500 11px inherit;cursor:pointer;
+    letter-spacing:.08em;text-transform:uppercase;transition:.15s;backdrop-filter:blur(6px);
+  }
+  .viewtoggle:hover{color:var(--ink);border-color:var(--gold)}
+  .viewtoggle.on{color:var(--gold);border-color:var(--gold-dim)}
+  /* framing: drag on the stage to orbit the camera, wheel to dolly */
+  .frametoggle{bottom:82px;right:96px}
+  .stage.framing{cursor:grab}
+  .stage.framing:active{cursor:grabbing}
+  .stage.framing::after{
+    content:"drag to orbit · esc to exit";
+    position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:3;
+    font-size:11px;letter-spacing:.06em;color:var(--gold);
+    background:rgba(12,15,22,.85);border:1px solid var(--gold-dim);
+    border-radius:999px;padding:4px 12px;pointer-events:none;white-space:nowrap;
+  }
+  /* explicit zoom/reset, so framing never depends on knowing a gesture */
+  .camctl{
+    position:absolute;right:14px;bottom:118px;z-index:4;display:none;
+    flex-direction:column;gap:6px;
+  }
+  .stage.framing .camctl{display:flex}
+  .camctl button{
+    width:34px;height:34px;border-radius:10px;cursor:pointer;
+    background:rgba(12,15,22,.9);border:1px solid var(--line2);color:var(--ink);
+    font:600 15px/1 inherit;transition:.15s;backdrop-filter:blur(6px);
+  }
+  .camctl button:hover{border-color:var(--gold);color:var(--gold)}
+  .camctl button:active{transform:scale(.94)}
+  .camctl .reset{font-size:13px}
+
+  /* avatar picker */
+  .avatarbar{
+    position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:4;
+    display:flex;align-items:center;gap:8px;
+  }
+  .stage.framing .avatarbar{opacity:0;pointer-events:none}
+  .avatarbar select{
+    background:rgba(12,15,22,.9);border:1px solid var(--line2);color:var(--ink);
+    border-radius:999px;padding:5px 12px;font:500 12px inherit;cursor:pointer;
+    backdrop-filter:blur(6px);max-width:230px;
+  }
+  .avatarbar select:hover{border-color:var(--gold)}
+  .avatarbar select:focus{outline:none;border-color:var(--gold)}
+
+  /* podcast toggle: solo narrator <-> two hosts in conversation */
+  .podtoggle{
+    background:rgba(12,15,22,.9);border:1px solid var(--line2);color:var(--dim);
+    border-radius:999px;padding:5px 12px;font:500 12px inherit;cursor:pointer;
+    backdrop-filter:blur(6px);display:flex;align-items:center;gap:7px;
+    white-space:nowrap;transition:border-color .15s,color .15s;
+  }
+  .podtoggle:hover:not(:disabled){border-color:var(--gold);color:var(--ink)}
+  .podtoggle:disabled{opacity:.45;cursor:not-allowed}
+  .poddot{
+    width:7px;height:7px;border-radius:50%;background:var(--line2);
+    transition:background .15s,box-shadow .15s;
+  }
+  .podtoggle.on{border-color:var(--gold);color:var(--gold)}
+  .podtoggle.on .poddot{background:var(--gold);box-shadow:0 0 7px var(--gold)}
+
+  /* arrange: pick panels up and reorder them */
+  .arrange{
+    background:none;border:1px solid var(--line2);color:var(--dim);
+    border-radius:999px;padding:4px 11px;font:500 11px inherit;cursor:pointer;
+    letter-spacing:.08em;text-transform:uppercase;transition:.15s;
+  }
+  .arrange:hover{color:var(--ink);border-color:var(--gold)}
+  .arrange.on{color:var(--gold);border-color:var(--gold-dim)}
+  body.arranging .card{cursor:grab}
+  body.arranging .card::before{
+    content:"⠿";position:absolute;top:8px;left:50%;transform:translateX(-50%);
+    z-index:5;color:var(--gold);font-size:15px;line-height:1;opacity:.75;
+    pointer-events:none;
+  }
+  body.arranging .card{position:relative;outline:1px dashed var(--gold-dim);outline-offset:-3px}
+  body.arranging .card.dragging{opacity:.4;cursor:grabbing}
+  body.arranging .card.dropzone{outline:2px solid var(--gold)}
+  .subtitle{
+    position:absolute;left:0;right:0;bottom:0;padding:16px 20px 18px;
+    background:linear-gradient(0deg,rgba(6,8,12,.92),transparent);
+    font-size:15px;line-height:1.45;min-height:74px;
+  }
+  .subtitle .who{font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--gold);margin-bottom:4px}
+  .subtitle p{opacity:0;transform:translateY(6px);transition:.35s}
+  .subtitle p.show{opacity:1;transform:none}
+
+  /* ---------- header ---------- */
+  .top{display:flex;align-items:center;gap:22px;padding:14px 18px}
+  .sym{font-size:11px;letter-spacing:.18em;color:var(--dim);text-transform:uppercase}
+  .price{font:600 40px/1 var(--mono);font-variant-numeric:tabular-nums;
+    letter-spacing:-.02em;transition:color .5s}
+  .price.up{color:var(--up)} .price.down{color:var(--down)}
+  .chg{font:500 17px/1 var(--mono);font-variant-numeric:tabular-nums}
+  .chg.up{color:var(--up)} .chg.down{color:var(--down)} .chg.flat{color:var(--dim)}
+  .sess{margin-left:auto;text-align:right}
+  .sess .name{font-size:15px;color:var(--violet);text-transform:capitalize}
+  .sess .next{font-size:11px;color:var(--dim);margin-top:2px}
+  .clock{font:500 13px/1 var(--mono);color:var(--dim);text-align:right}
+
+  /* ---------- facts ---------- */
+  .facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(122px,1fr));
+    gap:1px;background:var(--line);border-radius:16px;overflow:hidden}
+  .f{background:#0f121a;padding:10px 12px}
+  .f .k{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim2)}
+  .f .v{font:500 16px/1.3 var(--mono);font-variant-numeric:tabular-nums;margin-top:3px}
+  .f .v.sm{font-size:13px}
+  .f.hot .v{color:var(--gold)}
+
+  /* ---------- transcript ---------- */
+  .feed{flex:1;min-height:0;display:flex;flex-direction:column}
+  .feed h2{font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--dim2);padding:12px 16px 8px;font-weight:600}
+  .rows{flex:1;min-height:0;overflow-y:auto;padding:0 16px 12px;scrollbar-width:thin;
+    scrollbar-color:var(--line2) transparent}
+  .rows::-webkit-scrollbar{width:8px}
+  .rows::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
+  .row{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);
+    animation:in .35s ease both}
+  @keyframes in{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+  .row .t{font:500 11px/1.7 var(--mono);color:var(--dim2);flex:none}
+  .row .b{min-width:0}
+  .chip{display:inline-block;font:500 10px/1.6 var(--mono);padding:0 6px;border-radius:5px;
+    background:rgba(96,165,250,.13);color:var(--blue);margin-right:7px;vertical-align:1px}
+  .row.bridge .chip{background:rgba(255,255,255,.06);color:var(--dim)}
+  .row.bridge .x{color:var(--dim)}
+  .row.override .chip{background:rgba(167,139,250,.18);color:var(--violet)}
+  .row.silence{opacity:.45;font-size:12px;font-style:italic;color:var(--dim2)}
+  .row .em{font-size:11px;color:var(--gold);margin-left:6px}
+
+  /* ---------- status + input ---------- */
+  .bar{display:flex;flex-wrap:wrap;gap:7px;padding:11px 14px}
+  .pill{display:flex;gap:6px;align-items:center;font-size:11px;padding:4px 10px;
+    border:1px solid var(--line);border-radius:999px;color:var(--dim)}
+  .pill b{font-weight:500;color:var(--ink)}
+  .pill.bad{border-color:rgba(248,113,113,.4)} .pill.bad b{color:var(--down)}
+  .pill.warn{border-color:rgba(245,185,66,.4)} .pill.warn b{color:var(--gold)}
+  .entry{display:flex;gap:9px;padding:11px 12px;align-items:center}
+  .entry input{
+    flex:1;background:#0c0f16;border:1px solid var(--line2);border-radius:11px;
+    color:var(--ink);padding:11px 14px;font:14px inherit;outline:none;transition:.2s;
+  }
+  .entry input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(245,185,66,.12)}
+  .entry input::placeholder{color:var(--dim2)}
+  .btn{background:rgba(255,255,255,.05);border:1px solid var(--line2);color:var(--dim);
+    border-radius:10px;padding:9px 13px;font:500 12px inherit;cursor:pointer;transition:.15s}
+  .btn:hover{background:rgba(255,255,255,.1);color:var(--ink)}
+  .btn.gold{background:rgba(245,185,66,.14);border-color:var(--gold-dim);color:var(--gold)}
+  .hint{padding:0 14px 11px;font-size:11px;color:var(--dim2)}
+  .voicebar{padding-top:0}
+  .voicebar label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim2)}
+  .voicebar select{
+    background:#0c0f16;border:1px solid var(--line2);border-radius:10px;color:var(--ink);
+    padding:9px 12px;font:13px inherit;outline:none;min-width:210px;cursor:pointer;transition:.2s;
+  }
+  .voicebar select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(245,185,66,.12)}
+  .voicebar select optgroup{background:#0c0f16;color:var(--dim);font-style:normal}
+  .voicebar select option{background:#0c0f16;color:var(--ink)}
+  .vhint{font-size:11px;color:var(--dim2)}
+  @media(max-width:1080px){.app{grid-template-columns:1fr}.stage svg{max-height:280px}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= left: avatar ================= -->
+  <div class="col">
+    <div class="card stage">
+      <div class="badge"><span class="dot" id="dot"></span><span id="conn">connecting</span></div>
+      <div class="emote-tag" id="emoteTag">neutral</div>
+      <button class="viewtoggle" id="viewToggle" title="switch between the Warudo render and the built-in face">warudo</button>
+      <button class="viewtoggle frametoggle" id="frameToggle" title="drag on the avatar to orbit Warudo's camera, scroll to zoom, double-click to reset">frame</button>
+
+      <div class="avatarbar" id="avatarBar">
+        <select id="avatarPick" title="switch the character Warudo is showing"></select>
+        <!-- Podcast mode: one picker per chair, so either host can be
+             recast without touching config or dropping out of the show. -->
+        <select id="avatarPickA" class="slotpick" hidden
+                title="the character on the left"></select>
+        <select id="avatarPickB" class="slotpick" hidden
+                title="the character on the right"></select>
+        <button id="podcastToggle" class="podtoggle"
+                title="podcast mode: two hosts on stage talking to each other">
+          <span class="poddot"></span><span id="podcastLabel">solo</span>
+        </button>
+      </div>
+
+      <div class="camctl" id="camCtl">
+        <button id="zoomIn"  title="zoom in">+</button>
+        <button id="zoomOut" title="zoom out">−</button>
+        <button id="camReset" class="reset" title="back to a straight-on head and shoulders">⟲</button>
+      </div>
+      <img id="warudo" alt="Warudo render">
+      <div class="nowarudo" id="noWarudo">
+        waiting for Warudo…<br><span>open Warudo and its render window</span>
+      </div>
+
+      <svg viewBox="0 0 320 360" id="avatar">
+        <defs>
+          <radialGradient id="skin" cx="42%" cy="34%">
+            <stop offset="0%" stop-color="#f0c9a8"/><stop offset="100%" stop-color="#d5a279"/>
+          </radialGradient>
+          <linearGradient id="hair" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#2b2f3d"/><stop offset="100%" stop-color="#171a24"/>
+          </linearGradient>
+          <linearGradient id="shirt" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#232838"/><stop offset="100%" stop-color="#151824"/>
+          </linearGradient>
+          <radialGradient id="glow" cx="50%" cy="50%">
+            <stop offset="60%" stop-color="rgba(245,185,66,0)"/>
+            <stop offset="100%" stop-color="rgba(245,185,66,.22)"/>
+          </radialGradient>
+          <clipPath id="mouthClip"><ellipse id="mouthClipE" cx="160" cy="212" rx="34" ry="3"/></clipPath>
+        </defs>
+
+        <circle id="ring" cx="160" cy="170" r="132" fill="url(#glow)" opacity="0"/>
+
+        <g id="body">
+          <!-- shoulders -->
+          <path d="M42 360 q10-72 118-84 q108 12 118 84 z" fill="url(#shirt)"/>
+          <path d="M160 276 v84" stroke="rgba(0,0,0,.25)" stroke-width="2" fill="none"/>
+          <!-- neck -->
+          <path d="M132 246 h56 v34 q-28 16-56 0 z" fill="#c8926b"/>
+          <path d="M132 250 q28 20 56 0" fill="rgba(0,0,0,.14)"/>
+
+          <g id="head">
+            <!-- ears -->
+            <ellipse cx="74" cy="176" rx="12" ry="18" fill="#d5a279"/>
+            <ellipse cx="246" cy="176" rx="12" ry="18" fill="#d5a279"/>
+            <!-- face -->
+            <path d="M80 152 q0-84 80-84 q80 0 80 84 q0 76-80 104 q-80-28-80-104z" fill="url(#skin)"/>
+            <!-- hair -->
+            <path d="M74 150 q-4-92 86-92 q90 0 86 92 q-10-40-38-50 q-26 20-96 12 q-24 6-38 38z"
+                  fill="url(#hair)"/>
+
+            <!-- brows -->
+            <g id="brows" stroke="#3a3020" stroke-width="6" stroke-linecap="round" fill="none">
+              <path id="browL" d="M108 150 q18-9 36-2"/>
+              <path id="browR" d="M176 148 q18-7 36 2"/>
+            </g>
+
+            <!-- eyes -->
+            <g id="eyes">
+              <g id="eyeL">
+                <ellipse cx="126" cy="174" rx="19" ry="12" fill="#fdfdff"/>
+                <circle cx="128" cy="175" r="8.4" fill="#5b4632"/>
+                <circle cx="128" cy="175" r="4.1" fill="#12100e"/>
+                <circle cx="131" cy="172" r="2.4" fill="#fff" opacity=".92"/>
+              </g>
+              <g id="eyeR">
+                <ellipse cx="194" cy="174" rx="19" ry="12" fill="#fdfdff"/>
+                <circle cx="196" cy="175" r="8.4" fill="#5b4632"/>
+                <circle cx="196" cy="175" r="4.1" fill="#12100e"/>
+                <circle cx="199" cy="172" r="2.4" fill="#fff" opacity=".92"/>
+              </g>
+            </g>
+            <!-- eyelids (drop down to blink) -->
+            <rect id="lidL" x="106" y="146" width="40" height="26" rx="8" fill="#e3b487"
+                  transform="translate(0,-28)"/>
+            <rect id="lidR" x="174" y="146" width="40" height="26" rx="8" fill="#e3b487"
+                  transform="translate(0,-28)"/>
+
+            <!-- nose -->
+            <path d="M160 178 q-7 20 2 26 q5 3 10-1" stroke="#b98a63" stroke-width="3.4"
+                  fill="none" stroke-linecap="round"/>
+
+            <!-- mouth -->
+            <g id="mouth">
+              <ellipse id="mouthOuter" cx="160" cy="212" rx="36" ry="5" fill="#a8574f"/>
+              <ellipse id="mouthInner" cx="160" cy="212" rx="34" ry="3" fill="#3d151a"/>
+              <g clip-path="url(#mouthClip)">
+                <rect id="teeth" x="126" y="196" width="68" height="9" rx="3" fill="#fbfbfd"/>
+                <ellipse id="tongue" cx="160" cy="230" rx="20" ry="11" fill="#c0605f"/>
+              </g>
+              <path id="lipLine" d="M124 212 q36 0 72 0" stroke="#8f463f" stroke-width="2.2"
+                    fill="none" stroke-linecap="round" opacity=".55"/>
+            </g>
+          </g>
+        </g>
+      </svg>
+
+      <div class="subtitle">
+        <div class="who" id="who">narrator</div>
+        <p id="say"></p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="bar" id="status"></div>
+    </div>
+  </div>
+
+  <!-- ================= right: data ================= -->
+  <div class="col">
+    <div class="card top">
+      <div>
+        <div class="sym" id="sym">XAUUSD</div>
+        <div class="price" id="px">—</div>
+      </div>
+      <div>
+        <div class="sym">change</div>
+        <div class="chg flat" id="chg">—</div>
+      </div>
+      <div class="sess">
+        <div class="name" id="sess">—</div>
+        <div class="next" id="next">—</div>
+        <div class="clock" id="clock">—</div>
+      </div>
+      <button class="arrange" id="arrangeToggle" title="pick panels up and drag them into the order you want">arrange</button>
+    </div>
+
+    <div class="facts" id="facts"></div>
+
+    <div class="card feed">
+      <h2>transcript</h2>
+      <div class="rows" id="rows"></div>
+    </div>
+
+    <div class="card">
+      <div class="entry">
+        <input id="say-input" autocomplete="off" spellcheck="false"
+               placeholder="type a line to speak it next, or /mute /skip /quiet 300 …">
+        <button class="btn gold" id="send">speak</button>
+        <button class="btn" data-cmd="/mute">mute</button>
+        <button class="btn" data-cmd="/skip">skip</button>
+        <button class="btn" data-cmd="/reload">reload</button>
+      </div>
+      <div class="entry voicebar">
+        <label for="voice">voice</label>
+        <select id="voice"><option>loading…</option></select>
+        <span class="vhint" id="vhint">switching says a test line so you can hear it</span>
+      </div>
+      <!-- The two podcast hosts. Hidden entirely when the conversation layer
+           is off, so a stream running on templates alone shows no dead
+           controls. -->
+      <!-- The two podcast hosts. Shown even when the conversation layer is
+           off, with the reason -- a control that vanishes when it is not
+           configured is indistinguishable from one that was never built. -->
+      <div class="entry voicebar hostbar" id="hostBar">
+        <label for="hostAVoice" id="hostALabel">host A</label>
+        <select id="hostAVoice"><option>loading…</option></select>
+        <label for="hostBVoice" id="hostBLabel">host B</label>
+        <select id="hostBVoice"><option>loading…</option></select>
+      </div>
+      <div class="entry hostoff" id="hostOff" hidden>
+        <span class="vhint" id="hostOffHint"></span>
+      </div>
+      <div class="hint">
+        Anything you type jumps the queue at priority 5 — the current line finishes,
+        then yours speaks. Numbers are spoken the way a trader says them.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+
+  // ---------------------------------------------------------------- avatar
+  // Mouth shapes per viseme, in SVG units. Blended by weight every frame.
+  const SHAPES = {
+    closed:{rx:34, ry:3,  round:0},
+    aa:    {rx:33, ry:29, round:.45},
+    ee:    {rx:44, ry:11, round:.05},
+    ih:    {rx:31, ry:13, round:.2},
+    oh:    {rx:26, ry:25, round:.85},
+    ou:    {rx:17, ry:19, round:1},
+  };
+  const VIS = ["aa","ee","ih","oh","ou"];
+
+  const el = {
+    inner:$("mouthInner"), outer:$("mouthOuter"), clip:$("mouthClipE"),
+    teeth:$("teeth"), tongue:$("tongue"), lip:$("lipLine"),
+    head:$("head"), ring:$("ring"), lidL:$("lidL"), lidR:$("lidR"),
+    browL:$("browL"), browR:$("browR"), eyeL:$("eyeL"), eyeR:$("eyeR"),
+  };
+
+  let track = null, trackStart = 0, trackDur = 0;
+  let mouth = {rx:34, ry:3, round:0};
+  let emote = "neutral", emoteUntil = 0;
+  let blinkAt = performance.now() + 2200, blinking = 0;
+
+  function setEmote(name, hold){
+    emote = name || "neutral";
+    emoteUntil = performance.now() + (hold || 1.5) * 1000;
+    const tag = $("emoteTag");
+    tag.textContent = emote;
+    tag.classList.add("show");
+    clearTimeout(setEmote._t);
+    setEmote._t = setTimeout(() => tag.classList.remove("show"), (hold || 1.5) * 1000 + 400);
+  }
+
+  // Brow and eye posture per emote.
+  const POSE = {
+    neutral:  {brow:0,  eye:1,    curl:0},
+    alert:    {brow:-6, eye:1.1,  curl:.15},
+    surprised:{brow:-12,eye:1.32, curl:.35},
+    excited:  {brow:-9, eye:1.18, curl:.55},
+    bored:    {brow:4,  eye:.62,  curl:-.35},
+  };
+
+  function frameAt(t){
+    // Nearest frame in the pre-sent viseme track.
+    if(!track || !track.length) return null;
+    const i = Math.min(track.length - 1, Math.round(t / trackDur * (track.length - 1)));
+    return track[i];
+  }
+
+  function tick(now){
+    // ----- mouth from the viseme track
+    let target = SHAPES.closed, amp = 0;
+    if(track){
+      const t = (now - trackStart) / 1000;
+      if(t > trackDur + .25){ track = null; }
+      else {
+        const f = frameAt(Math.max(0, t));
+        if(f){
+          let rx = 0, ry = 0, round = 0, total = 0;
+          for(let i = 0; i < VIS.length; i++){
+            const w = f[i + 1];
+            if(w <= 0.001) continue;
+            const s = SHAPES[VIS[i]];
+            rx += s.rx * w; ry += s.ry * w; round += s.round * w; total += w;
+          }
+          if(total > 0.001){
+            amp = Math.min(1, total);
+            target = {rx: rx/total, ry: ry/total, round: round/total};
+          }
+        }
+      }
+    }
+    // Interpolate closed -> target by amplitude, then smooth for good measure.
+    const want = {
+      rx: SHAPES.closed.rx + (target.rx - SHAPES.closed.rx) * amp,
+      ry: SHAPES.closed.ry + (target.ry - SHAPES.closed.ry) * amp,
+      round: target.round * amp,
+    };
+    mouth.rx += (want.rx - mouth.rx) * .45;
+    mouth.ry += (want.ry - mouth.ry) * .45;
+    mouth.round += (want.round - mouth.round) * .45;
+
+    const pose = POSE[emote] || POSE.neutral;
+    const speaking = !!track;
+    if(now > emoteUntil && emote !== "neutral") emote = "neutral";
+
+    el.inner.setAttribute("rx", mouth.rx.toFixed(2));
+    el.inner.setAttribute("ry", Math.max(1, mouth.ry).toFixed(2));
+    el.clip.setAttribute("rx", mouth.rx.toFixed(2));
+    el.clip.setAttribute("ry", Math.max(1, mouth.ry).toFixed(2));
+    el.outer.setAttribute("rx", (mouth.rx + 2.5).toFixed(2));
+    el.outer.setAttribute("ry", (mouth.ry + 2.2).toFixed(2));
+    el.teeth.setAttribute("y", (212 - mouth.ry - 1).toFixed(2));
+    el.teeth.setAttribute("opacity", mouth.ry > 6 ? "1" : "0");
+    el.tongue.setAttribute("cy", (214 + mouth.ry * .55).toFixed(2));
+    el.tongue.setAttribute("opacity", mouth.ry > 12 ? ".9" : "0");
+    // A smile/frown curl on the lip line, from the emote.
+    const c = pose.curl * 7;
+    el.lip.setAttribute("d", `M${160 - mouth.rx - 4} ${212 - c*0.3} q${mouth.rx + 4} ${8*pose.curl + 0} ${2*(mouth.rx + 4)} ${c*0.3}`);
+    el.lip.setAttribute("opacity", mouth.ry > 8 ? ".15" : ".55");
+
+    // ----- brows
+    el.browL.setAttribute("transform", `translate(0,${pose.brow})`);
+    el.browR.setAttribute("transform", `translate(0,${pose.brow})`);
+
+    // ----- blinking
+    if(!blinking && now > blinkAt){ blinking = now; blinkAt = now + 2400 + Math.random()*3200; }
+    let lid = -28;
+    if(blinking){
+      const p = (now - blinking) / 150;
+      if(p >= 1){ blinking = 0; }
+      else { lid = -28 + Math.sin(p * Math.PI) * 30; }
+    }
+    const squint = (1 - pose.eye) * 10;
+    el.lidL.setAttribute("transform", `translate(0,${lid + squint})`);
+    el.lidR.setAttribute("transform", `translate(0,${lid + squint})`);
+    el.eyeL.setAttribute("transform", `translate(0,0) scale(1,${pose.eye}) translate(0,${174*(1/pose.eye - 1)})`);
+    el.eyeR.setAttribute("transform", `translate(0,0) scale(1,${pose.eye}) translate(0,${174*(1/pose.eye - 1)})`);
+
+    // ----- idle breathing + a small nod while speaking
+    const breath = Math.sin(now / 1900) * 2.2;
+    const nod = speaking ? Math.sin(now / 260) * 1.1 : 0;
+    const sway = Math.sin(now / 3400) * 1.4;
+    el.head.setAttribute("transform", `translate(${sway},${breath + nod})`);
+    el.ring.setAttribute("opacity", speaking ? (0.35 + amp * 0.55).toFixed(2) : "0");
+
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // ---------------------------------------------------------------- facts
+  const FACTS = [
+    ["atr_m15","15m ATR","money"], ["atr_ratio","ATR ratio","num"],
+    ["minutes_since_move","since move","mins"], ["nearest_level","nearest","text"],
+    ["nearest_level_dist","distance","money"], ["day_range","day range","money"],
+    ["pdh","prior high","px"], ["pdl","prior low","px"],
+    ["asian_high","asian high","px"], ["asian_low","asian low","px"],
+    ["bars_in_range","bars in range","num"], ["consecutive_bars","streak","num"],
+    ["range_state","range","text"], ["spread","spread","money"],
+    ["day_open","day open","px"], ["week_open","week open","px"],
+  ];
+  const LEVEL_NAMES = {pdh:"prior high",pdl:"prior low",asian_high:"asian high",
+    asian_low:"asian low",week_open:"week open",day_open:"day open",none:"—"};
+
+  function fmt(v, kind){
+    if(v === null || v === undefined) return "—";
+    if(kind === "px")    return Number(v).toFixed(2);
+    if(kind === "money") return "$" + Number(v).toFixed(2);
+    if(kind === "num")   return typeof v === "number" ? v.toFixed(2).replace(/\.00$/,"") : v;
+    if(kind === "mins")  return Math.round(v) + "m";
+    if(kind === "text")  return LEVEL_NAMES[v] || String(v).replace(/_/g," ");
+    return String(v);
+  }
+
+  let factCells = null;
+  function buildFacts(){
+    const box = $("facts");
+    box.innerHTML = "";
+    factCells = {};
+    for(const [key,label,kind] of FACTS){
+      const d = document.createElement("div");
+      d.className = "f";
+      d.innerHTML = `<div class="k">${label}</div><div class="v">—</div>`;
+      box.appendChild(d);
+      factCells[key] = {cell:d, v:d.querySelector(".v"), kind};
+    }
+  }
+  buildFacts();
+
+  let lastPrice = null;
+  function applyState(m){
+    const f = m.facts || {};
+    if(typeof f.price === "number"){
+      const px = $("px");
+      px.textContent = f.price.toFixed(2);
+      if(lastPrice !== null && f.price !== lastPrice){
+        px.classList.remove("up","down");
+        void px.offsetWidth;
+        px.classList.add(f.price > lastPrice ? "up" : "down");
+      }
+      lastPrice = f.price;
+    }
+    const chg = $("chg");
+    if(typeof f.change_day === "number"){
+      chg.textContent = (f.change_day >= 0 ? "+" : "") + f.change_day.toFixed(2);
+      chg.className = "chg " + (f.change_day > .5 ? "up" : f.change_day < -.5 ? "down" : "flat");
+    }
+    $("sess").textContent = String(f.session || "—").replace("_"," / ");
+    if(f.next_session != null && f.minutes_to_next_session != null){
+      $("next").textContent = `${String(f.next_session).replace("_"," / ")} in ${Math.round(f.minutes_to_next_session)}m`;
+    }
+    $("clock").textContent = (m.date ? m.date + "  " : "") + (m.clock || "");
+
+    for(const key in factCells){
+      const c = factCells[key];
+      c.v.textContent = fmt(f[key], c.kind);
+      if(c.v.textContent.length > 7) c.v.classList.add("sm"); else c.v.classList.remove("sm");
+    }
+    factCells.atr_ratio.cell.classList.toggle("hot", (f.atr_ratio || 0) > 1.5);
+    factCells.minutes_since_move.cell.classList.toggle("hot", (f.minutes_since_move || 0) > 30);
+
+    // Keep the dropdown honest if the voice was changed from the terminal.
+    const s = m.status || {};
+    if(s.voice && voicesBuilt && voiceSel.value !== s.voice){
+      voiceSel.value = s.voice;
+      $("who").textContent = `narrator · ${s.voice}`;
+    }
+
+    // status pills
+    const bar = $("status");
+    bar.innerHTML = "";
+    for(const k of ["feed","account","engine","hosts","audio","warudo","cache","density","lines","state"]){
+      if(!(k in s)) continue;
+      const v = String(s[k]);
+      const low = v.toLowerCase();
+      const bad = /down|fail|stale|muted|not attached/.test(low);
+      const warn = /silent|quiet|off|none/.test(low);
+      const p = document.createElement("div");
+      p.className = "pill" + (bad ? " bad" : warn ? " warn" : "");
+      p.innerHTML = `${k} <b></b>`;
+      p.querySelector("b").textContent = v.length > 26 ? v.slice(0,26) + "…" : v;
+      bar.appendChild(p);
+    }
+  }
+
+  // ---------------------------------------------------------------- feed
+  const rows = $("rows");
+  function addRow(m){
+    const d = document.createElement("div");
+    d.className = "row " + (m.source || "");
+    const em = m.emote ? `<span class="em">${m.emote}</span>` : "";
+    d.innerHTML = `<div class="t">${m.time}</div><div class="b">
+      <span class="chip"></span><span class="x"></span>${em}</div>`;
+    d.querySelector(".chip").textContent = m.id;
+    d.querySelector(".x").textContent = m.text;
+    rows.appendChild(d);
+    while(rows.children.length > 250) rows.removeChild(rows.firstChild);
+    rows.scrollTop = rows.scrollHeight;
+  }
+  function addNote(text, cls){
+    const d = document.createElement("div");
+    d.className = "row " + (cls || "silence");
+    d.textContent = text;
+    rows.appendChild(d);
+    rows.scrollTop = rows.scrollHeight;
+  }
+
+  function showSubtitle(text){
+    const p = $("say");
+    p.classList.remove("show");
+    void p.offsetWidth;
+    p.textContent = text;
+    p.classList.add("show");
+  }
+
+  // ------------------------------------------------------- warudo mirror
+  // Frames arrive as binary JPEGs on the same socket. Each becomes an object
+  // URL for one paint and is revoked immediately -- holding them leaks a few
+  // hundred megabytes an hour at 15fps.
+  const stage = document.querySelector(".stage");
+  const warudoImg = $("warudo");
+  const viewToggle = $("viewToggle");
+  let wantLive = localStorage.getItem("narrator.view") !== "svg";
+  let lastFrameAt = 0, frameCount = 0, lastUrl = null;
+
+  function applyView(){
+    stage.classList.toggle("wantlive", wantLive);
+    viewToggle.classList.toggle("on", wantLive);
+    viewToggle.textContent = wantLive ? "warudo" : "face";
+    if(!wantLive) stage.classList.remove("live");
+    localStorage.setItem("narrator.view", wantLive ? "live" : "svg");
+  }
+  viewToggle.onclick = () => { wantLive = !wantLive; applyView(); };
+  applyView();
+
+  function showFrame(blob){
+    if(!wantLive) return;
+    const url = URL.createObjectURL(blob);
+    warudoImg.onload = () => { if(lastUrl) URL.revokeObjectURL(lastUrl); lastUrl = url; };
+    warudoImg.src = url;
+    stage.classList.add("live");
+    lastFrameAt = performance.now();
+    frameCount++;
+  }
+
+  // If frames stop arriving, fall back rather than freezing on a stale image.
+  setInterval(() => {
+    if(wantLive && lastFrameAt && performance.now() - lastFrameAt > 2500){
+      stage.classList.remove("live");
+    }
+  }, 1000);
+
+  // ------------------------------------------------------------- framing
+  // Drag on the avatar to orbit Warudo's camera. Framing a VTuber by typing
+  // transform numbers is miserable, and doing it in Warudo's own window means
+  // alt-tabbing away from the thing you are trying to frame.
+  const frameToggle = $("frameToggle");
+  const DEFAULT_SHOT = {yaw:0, pitch:6, distance:0.85};
+  let shot = {...DEFAULT_SHOT};
+  let framing = false, dragging = false, lastX = 0, lastY = 0;
+
+  try{ shot = {...shot, ...JSON.parse(localStorage.getItem("narrator.shot") || "{}")}; }catch(e){}
+
+  function pushShot(){
+    localStorage.setItem("narrator.shot", JSON.stringify(shot));
+    if(ws && ws.readyState === 1){
+      ws.send(JSON.stringify({type:"camera", ...shot}));
+    }
+  }
+  function applyFraming(){
+    stage.classList.toggle("framing", framing);
+    frameToggle.classList.toggle("on", framing);
+  }
+  frameToggle.onclick = () => { framing = !framing; applyFraming(); if(framing) pushShot(); };
+
+  // The controls live inside the stage, so a drag must never start on one:
+  // setPointerCapture would swallow the click and the buttons would look dead.
+  const onControl = e => !!(e.target.closest && e.target.closest("button, select, .camctl, .avatarbar"));
+
+  stage.addEventListener("pointerdown", e => {
+    if(!framing || onControl(e)) return;
+    dragging = true; lastX = e.clientX; lastY = e.clientY;
+    stage.setPointerCapture(e.pointerId);
+  });
+  stage.addEventListener("pointermove", e => {
+    if(!framing || !dragging) return;
+    shot.yaw   = (shot.yaw + (e.clientX - lastX) * 0.4) % 360;
+    // Clamped: past vertical the camera rolls over and the shot is unusable.
+    shot.pitch = Math.max(-40, Math.min(60, shot.pitch + (e.clientY - lastY) * 0.25));
+    lastX = e.clientX; lastY = e.clientY;
+    pushShot();
+  });
+  stage.addEventListener("pointerup", e => {
+    dragging = false;
+    if(stage.hasPointerCapture(e.pointerId)) stage.releasePointerCapture(e.pointerId);
+  });
+  stage.addEventListener("wheel", e => {
+    if(!framing || onControl(e)) return;
+    e.preventDefault();
+    shot.distance = Math.max(0.25, Math.min(4, shot.distance * (e.deltaY > 0 ? 1.08 : 0.93)));
+    pushShot();
+  }, {passive:false});
+  stage.addEventListener("dblclick", e => {
+    if(!framing || onControl(e)) return;
+    shot = {...DEFAULT_SHOT};
+    pushShot();
+  });
+  // Escape always gets you out, from anywhere, without hunting for the button.
+  document.addEventListener("keydown", e => {
+    if(e.key !== "Escape") return;
+    if(framing){ framing = false; applyFraming(); }
+    if(arranging){ arranging = false; applyArranging(); }
+  });
+
+  // The same moves as a button, so framing never depends on knowing a gesture.
+  function zoom(factor){
+    shot.distance = Math.max(0.25, Math.min(4, shot.distance * factor));
+    pushShot();
+  }
+  $("zoomIn").onclick  = () => zoom(0.88);
+  $("zoomOut").onclick = () => zoom(1.14);
+  $("camReset").onclick = () => { shot = {...DEFAULT_SHOT}; pushShot(); };
+  applyFraming();
+
+  // -------------------------------------------------------- avatar picker
+  const avatarPick = $("avatarPick");
+  let avatarsBuilt = false;
+
+  function buildAvatars(list){
+    if(avatarsBuilt || !list || !list.length) return;
+    // The same roster feeds the solo picker and both chairs.
+    for(const sel of [avatarPick, slotPicks.a, slotPicks.b]){
+      buildRoster(sel, list);
+    }
+    const saved = localStorage.getItem("narrator.avatar");
+    if(saved && [...avatarPick.options].some(o => o.value === saved)){
+      avatarPick.value = saved;
+    }
+    avatarsBuilt = true;
+  }
+
+  function buildRoster(target, list){
+    target.innerHTML = "";
+    const groups = {female:"female", male:"male", other:"other"};
+    for(const [key, label] of Object.entries(groups)){
+      const inGroup = list.filter(a => (a.gender || "other") === key);
+      if(!inGroup.length) continue;
+      const g = document.createElement("optgroup");
+      g.label = label;
+      for(const a of inGroup){
+        const o = document.createElement("option");
+        o.value = a.file;
+        // lipSync false is worth seeing here rather than mid-stream
+        const setting = a.setting ? ` — ${a.setting}` : "";
+        o.textContent = (a.lipSync === false ? `${a.label} ⚠` : a.label) + setting;
+        o.title = a.lipSync === false
+          ? "this model's vowel clips bind to nothing -- its mouth cannot move"
+          : `${a.label}: ${a.setting || "default setting"}`;
+        g.appendChild(o);
+      }
+      target.appendChild(g);
+    }
+  }
+
+  avatarPick.onchange = () => {
+    const file = avatarPick.value;
+    localStorage.setItem("narrator.avatar", file);
+    if(ws && ws.readyState === 1) ws.send(JSON.stringify({type:"avatar", file}));
+    // A swap reloads the model in Warudo; nudge the camera so the new one is
+    // framed rather than left half out of shot.
+    setTimeout(pushShot, 1200);
+  };
+
+  // ------------------------------------------------------------- arranging
+  // Pick a panel up and drop it somewhere else. The order is per browser, so
+  // the layout survives a reload without the narrator having to store it.
+  const arrangeToggle = $("arrangeToggle");
+  let arranging = false, held = null;
+
+  const cards = () => [...document.querySelectorAll(".app .card, .app .facts")];
+  function cardKey(card){ return card.id || card.className.replace(/\s+/g, "-"); }
+
+  function saveOrder(){
+    const order = {};
+    document.querySelectorAll(".app .col").forEach((col, i) => {
+      order[i] = [...col.children].map(cardKey);
+    });
+    localStorage.setItem("narrator.layout", JSON.stringify(order));
+  }
+  function restoreOrder(){
+    let order;
+    try{ order = JSON.parse(localStorage.getItem("narrator.layout") || "null"); }catch(e){ return; }
+    if(!order) return;
+    document.querySelectorAll(".app .col").forEach((col, i) => {
+      const wanted = order[i];
+      if(!wanted) return;
+      const byKey = new Map([...col.children].map(c => [cardKey(c), c]));
+      wanted.forEach(key => { const el = byKey.get(key); if(el) col.appendChild(el); });
+    });
+  }
+
+  function applyArranging(){
+    document.body.classList.toggle("arranging", arranging);
+    arrangeToggle.classList.toggle("on", arranging);
+    cards().forEach(card => { card.draggable = arranging; });
+  }
+  arrangeToggle.onclick = () => { arranging = !arranging; applyArranging(); };
+
+  document.addEventListener("dragstart", e => {
+    if(!arranging) return;
+    held = e.target.closest(".card, .facts");
+    if(held) held.classList.add("dragging");
+  });
+  document.addEventListener("dragover", e => {
+    if(!arranging || !held) return;
+    e.preventDefault();
+    const over = e.target.closest(".card, .facts");
+    cards().forEach(c => c.classList.remove("dropzone"));
+    if(over && over !== held) over.classList.add("dropzone");
+  });
+  document.addEventListener("drop", e => {
+    if(!arranging || !held) return;
+    e.preventDefault();
+    const over = e.target.closest(".card, .facts");
+    if(over && over !== held){
+      const col = over.parentElement;
+      // Dropping on the lower half puts it after, which is what the eye expects.
+      const box = over.getBoundingClientRect();
+      col.insertBefore(held, e.clientY > box.top + box.height / 2 ? over.nextSibling : over);
+      saveOrder();
+    }
+    cards().forEach(c => c.classList.remove("dropzone"));
+  });
+  document.addEventListener("dragend", () => {
+    if(held) held.classList.remove("dragging");
+    cards().forEach(c => c.classList.remove("dropzone"));
+    held = null;
+  });
+  restoreOrder();
+  applyArranging();
+
+  // ---------------------------------------------------------------- voices
+  const voiceSel = $("voice");
+  let voicesBuilt = false;
+
+  function buildVoices(groups, current){
+    if(voicesBuilt || !groups) return;
+    voiceSel.innerHTML = "";
+    for(const [label, names] of Object.entries(groups)){
+      const g = document.createElement("optgroup");
+      g.label = label;
+      for(const name of names){
+        const o = document.createElement("option");
+        o.value = name;
+        // "am_michael" -> "Michael"
+        o.textContent = name.split("_").slice(1).join("_")
+          .replace(/^./, c => c.toUpperCase());
+        g.appendChild(o);
+      }
+      voiceSel.appendChild(g);
+    }
+    if(current) voiceSel.value = current;
+    voicesBuilt = true;
+  }
+
+  // The two hosts get their own pickers, populated from the same voice list.
+  // Each sends /hostvoice <key> <name>, which takes effect on that host's next
+  // turn -- there is no pipeline reload to wait for unless the language flips.
+  const hostBar = $("hostBar");
+  const hostSels = {a: $("hostAVoice"), b: $("hostBVoice")};
+  let hostsBuilt = false;
+  // The last host payload the narrator sent: names, voices and which body
+  // each is wearing. Kept so the chair pickers can show the truth rather
+  // than whatever was last clicked.
+  let lastHosts = [];
+
+  function buildHosts(groups, hosts, why){
+    lastHosts = hosts || [];
+    // No hosts: say why, rather than hiding the feature and looking broken.
+    if(!hosts || !hosts.length){
+      hostBar.hidden = true;
+      $("hostOff").hidden = false;
+      $("hostOffHint").textContent = why || "two-host conversation is off";
+      return;
+    }
+    hostBar.hidden = false;
+    $("hostOff").hidden = true;
+    for(const h of hosts){
+      const sel = hostSels[h.key];
+      if(!sel) continue;
+      const label = $(h.key === "a" ? "hostALabel" : "hostBLabel");
+      if(label) label.textContent = h.name;
+      if(!hostsBuilt){
+        sel.innerHTML = "";
+        for(const [gname, names] of Object.entries(groups || {})){
+          const g = document.createElement("optgroup");
+          g.label = gname;
+          for(const name of names){
+            const o = document.createElement("option");
+            o.value = name;
+            o.textContent = name.split("_").slice(1).join("_")
+              .replace(/^./, c => c.toUpperCase());
+            g.appendChild(o);
+          }
+          sel.appendChild(g);
+        }
+      }
+      if(h.voice) sel.value = h.voice;
+    }
+    hostsBuilt = true;
+  }
+
+  for(const [key, sel] of Object.entries(hostSels)){
+    sel.addEventListener("change", () => send(`/hostvoice ${key} ${sel.value}`));
+  }
+
+  // ------------------------------------------------------- podcast toggle
+  // The button never sets its own state. It asks, and the next state message
+  // says what actually happened -- the switch can be refused (no key), or
+  // flipped from the terminal, and a button that lies about the stage is
+  // worse than no button.
+  const podBtn = $("podcastToggle");
+  const slotPicks = {a: $("avatarPickA"), b: $("avatarPickB")};
+  let podcastOn = false;
+
+  // One picker per chair while two hosts are on stage, the single picker when
+  // one is. Same roster in all three, filled once by buildAvatars.
+  function slotAvatar(key){
+    const host = (lastHosts || []).find(h => h.key === key);
+    return host ? (host.avatar || "") : "";
+  }
+
+  function showSlotPickers(on){
+    avatarPick.hidden = !!on;
+    for(const [key, sel] of Object.entries(slotPicks)){
+      sel.hidden = !on;
+      // Reflect the narrator, never lead it. Assigning .value does not fire
+      // change, so this cannot loop back into a send.
+      const wearing = slotAvatar(key);
+      if(wearing && sel.value !== wearing) sel.value = wearing;
+    }
+  }
+
+  for(const [slot, sel] of Object.entries(slotPicks)){
+    sel.onchange = () => {
+      // Only ask for a change that is actually a change. Rebuilding the stage
+      // reloads both models and cuts whoever is mid-sentence, so a redundant
+      // request is not free -- and this select gets its value written to it
+      // on every state update.
+      if(sel.value === slotAvatar(slot)) return;
+      if(ws && ws.readyState === 1){
+        ws.send(JSON.stringify({type:"avatar", file: sel.value, slot}));
+      }
+    };
+  }
+
+  function applyPodcast(on, usable, why){
+    podcastOn = !!on;
+    showSlotPickers(podcastOn);
+    podBtn.classList.toggle("on", podcastOn);
+    // Going solo is always allowed. Only turning podcast mode ON needs a
+    // working conversation layer -- being stuck with two silent avatars and a
+    // greyed-out button is the worst state this can be in.
+    podBtn.disabled = !usable && !podcastOn;
+    $("podcastLabel").textContent = podcastOn ? "podcast" : "solo";
+    podBtn.title = podcastOn
+      ? (usable
+          ? "two hosts on stage — click for a single narrator"
+          : `two hosts on stage but not talking (${why || "unavailable"}) — click for a single narrator`)
+      : (usable
+          ? "single narrator — click for two hosts in conversation"
+          : (why || "podcast mode is unavailable"));
+  }
+
+  podBtn.addEventListener("click", () => {
+    if(podBtn.disabled) return;
+    send(podcastOn ? "/podcast off" : "/podcast on");
+    $("podcastLabel").textContent = "…";
+  });
+
+  voiceSel.addEventListener("change", () => {
+    const name = voiceSel.value;
+    send(`/voice ${name}`);
+    $("vhint").textContent = `switching to ${name}…`;
+    // A British voice reloads the pipeline, which takes a moment.
+    setTimeout(() => {
+      $("vhint").textContent = "switching says a test line so you can hear it";
+    }, 4000);
+  });
+
+  // ---------------------------------------------------------------- socket
+  const params = new URLSearchParams(location.search);
+  const wsPort = params.get("ws") || (Number(location.port) + 1);
+  let ws = null, retry = 800;
+
+  function connect(){
+    ws = new WebSocket(`ws://${location.hostname}:${wsPort}`);
+    ws.onopen = () => {
+      retry = 800;
+      $("dot").classList.add("on");
+      $("conn").textContent = "live";
+    };
+    ws.onclose = () => {
+      $("dot").classList.remove("on");
+      $("conn").textContent = "reconnecting";
+      setTimeout(connect, retry);
+      retry = Math.min(retry * 1.6, 8000);
+    };
+    ws.onerror = () => ws.close();
+    ws.binaryType = "blob";
+    ws.onmessage = ev => {
+      if(ev.data instanceof Blob){ showFrame(ev.data); return; }
+      let m; try{ m = JSON.parse(ev.data); } catch(e){ return; }
+      switch(m.type){
+        case "hello":
+          $("sym").textContent = m.symbol || "XAUUSD";
+          $("who").textContent = `narrator · ${m.voice || ""}`;
+          buildVoices(m.voices, m.voice);
+          buildHosts(m.voices, m.hosts, m.hostsOff);
+          buildAvatars(m.avatars);
+          applyPodcast(m.podcast, m.podcastUsable, m.hostsOff);
+          break;
+        case "state":
+          applyState(m);
+          // Hosts can be recast from the terminal too, so the chair pickers
+          // follow the narrator's word rather than the last thing clicked.
+          if(m.hosts) lastHosts = m.hosts;
+          applyPodcast(m.podcast, m.podcastUsable, m.hostsOff);
+          break;
+        case "line":
+          addRow(m);
+          showSubtitle(m.text);
+          break;
+        case "utterance":
+          track = m.frames; trackDur = m.duration || 1; trackStart = performance.now();
+          break;
+        case "emote": setEmote(m.name, m.hold); break;
+        case "note": addNote("· " + m.text, "silence"); break;
+        case "silence":
+          addNote(`— silent: ${m.reason}${m.detail ? " (" + m.detail + ")" : ""}`, "silence");
+          break;
+      }
+    };
+  }
+  connect();
+
+  // ---------------------------------------------------------------- input
+  const input = $("say-input");
+  function send(text){
+    if(!text.trim() || !ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({type:"command", text}));
+    addNote("› " + text, "silence");
+  }
+  $("send").onclick = () => { send(input.value); input.value = ""; input.focus(); };
+  input.addEventListener("keydown", e => {
+    if(e.key === "Enter"){ send(input.value); input.value = ""; }
+  });
+  document.querySelectorAll("[data-cmd]").forEach(b => {
+    b.onclick = () => send(b.dataset.cmd);
+  });
+  window.addEventListener("keydown", e => {
+    if(e.key === "/" && document.activeElement !== input){ e.preventDefault(); input.focus(); }
+  });
+  input.focus();
+})();
+</script>
+</body>
+</html>

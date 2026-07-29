@@ -1,0 +1,286 @@
+[
+  {
+    "id": "session.pre_ny",
+    "category": "session",
+    "priority": 3,
+    "when": "next_session == \"newyork\" and minutes_to_next_session < 60 and market_open",
+    "cooldown": 540,
+    "max_per_session": 6,
+    "variants": [
+      "{minutes_to_next_session} to the New York open.",
+      "New York comes in in {minutes_to_next_session}. Volume usually picks up around then.",
+      "We're {minutes_to_next_session} away from New York. Things tend to wake up."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "session.pre_london",
+    "category": "session",
+    "priority": 3,
+    "when": "next_session == \"london\" and minutes_to_next_session < 60 and market_open",
+    "cooldown": 540,
+    "max_per_session": 6,
+    "variants": [
+      "{minutes_to_next_session} to the London open.",
+      "London's in in {minutes_to_next_session}. That's usually when Asia's range gets tested.",
+      "Almost London time, {minutes_to_next_session} to go."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "session.pre_overlap",
+    "category": "session",
+    "priority": 3,
+    "when": "next_session == \"london_ny\" and minutes_to_next_session < 30 and market_open",
+    "cooldown": 540,
+    "max_per_session": 5,
+    "variants": [
+      "{minutes_to_next_session} until the overlap. London and New York in the same room.",
+      "Overlap's in {minutes_to_next_session}. Busiest stretch of the day, normally."
+    ]
+  },
+  {
+    "id": "session.ny_open",
+    "category": "session",
+    "priority": 4,
+    "when": "session == \"newyork\" and session_minutes_in < 12",
+    "cooldown": 2160,
+    "max_per_session": 3,
+    "variants": [
+      "New York is open. Gold's at {price}.",
+      "And that's New York in. We're sitting at {price}.",
+      "New York's live. {price} on the board."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "session.london_open",
+    "category": "session",
+    "priority": 4,
+    "when": "session == \"london\" and session_minutes_in < 12",
+    "cooldown": 2160,
+    "max_per_session": 3,
+    "variants": [
+      "London's open. Gold at {price}.",
+      "That's the London open. {price}, and the Asian range was {asian_range}.",
+      "London is in. We're at {price}."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "session.overlap_open",
+    "category": "session",
+    "priority": 4,
+    "when": "session == \"london_ny\" and session_minutes_in < 12",
+    "cooldown": 2160,
+    "max_per_session": 3,
+    "variants": [
+      "Overlap's on. Both London and New York trading now, {price}.",
+      "London and New York together now. Gold at {price}."
+    ],
+    "emote": "excited"
+  },
+  {
+    "id": "session.asia_open",
+    "category": "session",
+    "priority": 3,
+    "when": "session == \"tokyo\" and session_minutes_in < 15",
+    "cooldown": 2160,
+    "max_per_session": 3,
+    "variants": [
+      "Asia's in. Gold opens the session around {price}.",
+      "Tokyo's live now, {price}."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "session.asia_quiet",
+    "category": "session",
+    "priority": 2,
+    "when": "session == \"tokyo\" and asian_range_pct < 0.7 and session_minutes_in > 90",
+    "cooldown": 720,
+    "max_per_session": 6,
+    "variants": [
+      "Quiet Asian session so far. Range is only {asian_range_pct} of a normal one.",
+      "Asia's giving us {asian_range} of range. That's {asian_range_pct} of average.",
+      "Thin session in Asia. {asian_range} top to bottom."
+    ]
+  },
+  {
+    "id": "session.asia_wide",
+    "category": "session",
+    "priority": 3,
+    "when": "asian_range_pct > 1.4 and market_open",
+    "cooldown": 1080,
+    "max_per_session": 5,
+    "variants": [
+      "Big Asian range today, {asian_range}. That's {asian_range_pct} of normal.",
+      "Asia gave us {asian_range} of range. Wider than usual."
+    ],
+    "emote": "surprised"
+  },
+  {
+    "id": "session.london_mid",
+    "category": "session",
+    "priority": 2,
+    "when": "session == \"london\" and session_minutes_in > 90",
+    "cooldown": 900,
+    "max_per_session": 8,
+    "variants": [
+      "{session_minutes_in} into London. {price}.",
+      "We're {session_minutes_in} deep into the London session now.",
+      "London's been running {session_minutes_in}. Gold at {price}."
+    ]
+  },
+  {
+    "id": "session.ny_mid",
+    "category": "session",
+    "priority": 2,
+    "when": "session == \"newyork\" and session_minutes_in > 120",
+    "cooldown": 900,
+    "max_per_session": 8,
+    "variants": [
+      "{session_minutes_in} into the New York session. {price}.",
+      "New York's been open {session_minutes_in} now.",
+      "Afternoon in New York. Gold's at {price}."
+    ]
+  },
+  {
+    "id": "session.overlap_mid",
+    "category": "session",
+    "priority": 2,
+    "when": "session == \"london_ny\" and session_minutes_in > 60",
+    "cooldown": 720,
+    "max_per_session": 8,
+    "variants": [
+      "{session_minutes_in} into the overlap. {price}.",
+      "Still in the overlap, {session_minutes_in} in. Gold at {price}."
+    ]
+  },
+  {
+    "id": "session.sydney",
+    "category": "session",
+    "priority": 2,
+    "when": "session == \"sydney\"",
+    "cooldown": 1080,
+    "max_per_session": 6,
+    "variants": [
+      "Sydney's the only one open right now. Expect it slow.",
+      "It's the Sydney session. Thin books, small moves.",
+      "Sydney hours. {price}, and not much behind it."
+    ]
+  },
+  {
+    "id": "session.session_change_soon",
+    "category": "session",
+    "priority": 2,
+    "when": "minutes_to_next_session < 15 and market_open",
+    "cooldown": 540,
+    "max_per_session": 10,
+    "variants": [
+      "{minutes_to_next_session} until {next_session} takes over.",
+      "Session change coming, {next_session} in {minutes_to_next_session}."
+    ]
+  },
+  {
+    "id": "session.friday_wind_down",
+    "category": "session",
+    "priority": 3,
+    "when": "next_session == \"closed\" and minutes_to_next_session < 60",
+    "cooldown": 540,
+    "max_per_session": 6,
+    "variants": [
+      "{minutes_to_next_session} to the weekly close. Gold's at {price}.",
+      "Friday's winding down. {minutes_to_next_session} left in the week.",
+      "We close in {minutes_to_next_session}. Week finishes around {price}."
+    ]
+  },
+  {
+    "id": "session.weekend",
+    "category": "session",
+    "priority": 2,
+    "when": "not market_open",
+    "cooldown": 1080,
+    "max_per_session": 10,
+    "variants": [
+      "Market's closed for the weekend. Last print was {price}.",
+      "We're shut till Sunday evening. Gold finished around {price}.",
+      "Weekend break. Nothing moving, last trade {price}."
+    ]
+  },
+  {
+    "id": "session.weekend_countdown",
+    "category": "session",
+    "priority": 3,
+    "when": "not market_open and minutes_to_next_session < 120",
+    "cooldown": 540,
+    "max_per_session": 6,
+    "variants": [
+      "{minutes_to_next_session} until the market opens again.",
+      "Sydney reopens in {minutes_to_next_session}. We'll see where gold gaps."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "session.hour_close",
+    "category": "session",
+    "priority": 2,
+    "when": "h1_seconds_left < 90 and market_open",
+    "cooldown": 1080,
+    "max_per_session": 10,
+    "variants": [
+      "Hourly candle closes in {h1_seconds_left}. We're at {price}.",
+      "{h1_seconds_left} to the hourly close.",
+      "This hour wraps up in {h1_seconds_left}, gold at {price}."
+    ]
+  },
+  {
+    "id": "session.four_hour_close",
+    "category": "session",
+    "priority": 3,
+    "when": "h4_seconds_left < 300 and market_open",
+    "cooldown": 2160,
+    "max_per_session": 6,
+    "variants": [
+      "Four hour candle closes in {h4_seconds_left}. Bigger timeframe people are watching this one.",
+      "{h4_seconds_left} to the four hour close, gold at {price}."
+    ]
+  },
+  {
+    "id": "session.day_recap",
+    "category": "session",
+    "priority": 2,
+    "when": "market_open and session_minutes_in > 30",
+    "cooldown": 1080,
+    "max_per_session": 13,
+    "variants": [
+      "Day opened at {day_open}, we're at {price} now.",
+      "From {day_open} at the open to {price}. That's {change_day}.",
+      "Since the daily open at {day_open} we're {change_day}."
+    ]
+  },
+  {
+    "id": "session.week_position",
+    "category": "session",
+    "priority": 2,
+    "when": "market_open and stream_minutes > 20",
+    "cooldown": 1440,
+    "max_per_session": 8,
+    "variants": [
+      "Week opened at {week_open}. We're {price} now.",
+      "For the week, {week_open} was the open. Currently {price}."
+    ]
+  },
+  {
+    "id": "session.quiet_session_overall",
+    "category": "session",
+    "priority": 1,
+    "when": "market_open and range_state == \"contracting\" and session_minutes_in > 60",
+    "cooldown": 900,
+    "max_per_session": 8,
+    "variants": [
+      "This session's been a slow one so far.",
+      "Not the busiest session we've had. Ranges are tightening up."
+    ]
+  }
+]

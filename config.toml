@@ -1,0 +1,474 @@
+# ===========================================================================
+# Trade Fix Narrator - single source of truth for every tunable number.
+# No magic numbers live in code. If you want to change behaviour, change it
+# here.
+# ===========================================================================
+
+[app]
+# Where the spoken-line log goes (SQLite).
+log_db = "logs/narrator.sqlite"
+# Rotating text log.
+log_file = "logs/narrator.log"
+log_level = "INFO"
+
+
+# ---------------------------------------------------------------------------
+# Market data
+# ---------------------------------------------------------------------------
+[market]
+# Leave symbol empty ("") to auto-detect the broker's gold symbol by scanning
+# mt5.symbols_get(). Brokers use XAUUSD, GOLD, XAUUSD.m, XAUUSD.pro, GOLD.spot...
+# Set it explicitly to skip detection.
+symbol = ""
+# Candidate name fragments used by the auto-detector, best match first.
+symbol_candidates = ["XAUUSD", "GOLD", "XAU/USD", "XAUUSD.m", "XAUUSD.pro", "GOLDSPOT"]
+
+tick_poll_ms = 250          # tick polling cadence
+bar_poll_ms = 5000          # OHLC polling cadence
+bars_history = 500          # rolling bars kept in memory, per timeframe
+timeframes = ["M1", "M5", "M15", "H1", "H4", "D1"]
+
+# Reconnect backoff after an MT5 drop.
+reconnect_base_seconds = 1.0
+reconnect_max_seconds = 60.0
+
+# A tick older than this many seconds means the feed is stale (weekend, broker
+# outage). The narrator keeps running; facts flag market_open = false.
+stale_tick_seconds = 120
+# The freshness contract, and the strictest rule in this file. A price older
+# than this is withheld from the fact set entirely -- not softened, not
+# hedged in the wording -- so no line, template or host, can quote it. Every
+# level and distance is derived from `price`, so they go quiet with it.
+#
+# Fifteen seconds, because gold moves. The alternative was a disclaimer, and
+# an audience hears the number, not the disclaimer.
+max_quote_age_seconds = 15
+
+
+# ---------------------------------------------------------------------------
+# Replay adapter (development / closed markets)
+# ---------------------------------------------------------------------------
+[replay]
+# M1 OHLC csv: time_utc,open,high,low,close,volume
+csv = "tests/fixtures/xauusd_m1.csv"
+speed = 60.0                # 60.0 = one simulated minute per real second
+start_at = ""               # ISO-8601 UTC, "" = start at the first bar
+loop = false                # restart at the beginning when the data runs out
+spread = 0.28               # synthetic ask-bid; the csv holds no tick data
+# Largest jump the virtual clock may take in one step. Keeps cooldowns and
+# pacing measurable at high speed; above ~100x the replay just runs slower
+# than asked rather than going blocky.
+max_virtual_step = 1.0
+
+
+# ---------------------------------------------------------------------------
+# Session windows, UTC hours [start, end). Wrapping windows (start > end) are
+# handled, e.g. sydney 21 -> 06.
+# ---------------------------------------------------------------------------
+[sessions]
+sydney = [21, 6]
+tokyo = [0, 9]
+london = [7, 16]
+newyork = [12, 21]
+
+# Weekend closure, UTC. Friday 21:00 -> Sunday 21:00.
+weekend_close_day = 4        # Monday = 0
+weekend_close_hour = 21
+weekend_open_day = 6         # Sunday
+weekend_open_hour = 21
+
+
+# ---------------------------------------------------------------------------
+# Fact engine thresholds
+# ---------------------------------------------------------------------------
+[facts]
+atr_period = 14
+flat_threshold = 0.5         # abs(change_day) below this = "flat"
+stuck_atr_fraction = 0.3     # "moved" means > 0.3 * ATR(M15)
+expansion_ratio = 1.3        # 5-bar mean range / ATR above this = expanding
+contraction_ratio = 0.7      # ... below this = contracting
+tight_range_atr = 0.75       # bars_in_range band width, in ATR(M15)
+level_test_tolerance = 0.10  # dollars; price within this counts as "tested"
+asian_average_days = 20      # lookback for asian_range_pct
+
+
+# ---------------------------------------------------------------------------
+# Scheduler / pacing. This is what makes it sound alive instead of robotic.
+# ---------------------------------------------------------------------------
+[scheduler]
+tick_seconds = 2.0           # selection loop cadence
+min_gap_seconds = 8.0        # hard floor between two lines
+target_density = 0.35        # fraction of wall-clock spent speaking
+density_window_seconds = 600 # rolling window the density is measured over
+# Silence before pulling filler. A live stream that goes quiet for a minute and
+# a half reads as broken -- people check whether the audio has dropped.
+# Measured over a 12h sim: 90s left 39s average gaps and long dead patches; 35s
+# closed the gaps but pushed bridge filler to 42% of everything spoken, which is
+# the "Still watching." stream nobody stays on. 45s plus shorter cooldowns on
+# the content templates gets the same density with real lines filling it.
+bridge_after_seconds = 45.0
+default_cooldown = 300       # used when a template omits "cooldown"
+default_max_per_session = 20 # used when a template omits "max_per_session"
+recent_memory = 12           # how many recent template ids bias selection away
+recency_penalty = 0.15       # weight multiplier per recent appearance
+# max_per_session counters reset when the trading session turns over (Tokyo,
+# London, the overlap, New York). Measured: resetting on a 12-hour timer
+# instead let the library exhaust itself by hour four, and bridge filler grew
+# from 12% of the stream to 95%.
+reset_on_session_change = true
+session_reset_hours = 6      # backstop for long single sessions (Sydney, weekend)
+
+
+# ---------------------------------------------------------------------------
+# Template library
+# ---------------------------------------------------------------------------
+[templates]
+dir = "templates"
+hot_reload = true
+reload_poll_seconds = 2.0
+
+
+# ---------------------------------------------------------------------------
+# Speech (Milestone 3+). Unused by --dry-run except words_per_second, which is
+# how the dry run estimates how long a line would take to say, so that pacing
+# and density behave exactly as they will with audio attached.
+# ---------------------------------------------------------------------------
+[speech]
+# Kokoro voices:
+#   American male:   am_michael am_adam am_echo am_eric am_fenrir am_liam
+#                    am_onyx am_puck am_santa
+#   American female: af_heart af_alloy af_aoede af_bella af_jessica af_kore
+#                    af_nicole af_nova af_river af_sarah af_sky
+#   British male:    bm_daniel bm_fable bm_george bm_lewis
+#   British female:  bf_alice bf_emma bf_isabella bf_lily
+voice = "am_michael"
+speed = 1.0
+lang_code = "a"              # 'a' = American English, 'b' = British
+sample_rate = 24000
+cache_dir = "cache/phrases"
+cache_enabled = true
+words_per_second = 2.7       # dry-run duration estimate
+min_utterance_seconds = 1.2
+
+
+[audio]
+device = ""                  # "" = Windows default output device
+volume = 1.0
+
+
+# ---------------------------------------------------------------------------
+# The two-host conversation. Turns the stream from a narrator reading measured
+# facts into two people talking about them.
+#
+# Two backends, same conversation:
+#
+#   backend = "ollama"     a model on this machine. Free, unmetered, offline,
+#                          no rate limits. Weaker at multi-step reasoning
+#                          about price than the hosted model, fine at banter
+#                          and at explaining mechanics. This is the default
+#                          because a stream that runs unattended for twelve
+#                          hours should not be able to run up a bill.
+#
+#   backend = "anthropic"  the hosted API. Better market reasoning, metered.
+#                          Needs ANTHROPIC_API_KEY *in the environment* --
+#                          NOT in this file, which gets screenshotted, pasted
+#                          into chats and committed:
+#                              setx ANTHROPIC_API_KEY "sk-ant-..."
+#                          then open a NEW terminal; setx does not reach
+#                          shells that are already running.
+#                          Roughly $1-3/day at this stream's density.
+#
+# Note a Claude Pro or Max subscription is a different product from the API
+# and does not pay for it. There is no browser login for this.
+#
+# If the backend cannot run, the hosts stay quiet and the template library
+# carries the whole stream exactly as it did before any of this existed.
+# ---------------------------------------------------------------------------
+[hosts]
+enabled = true
+backend = "ollama"
+# Ollama tag, or a Claude model id when backend = "anthropic".
+#
+# The 7B is here for one reason, and it is not modesty. Measured on this
+# machine, both fully on the GPU, generating a turn and comparing against how
+# long Kokoro takes to say it:
+#
+#   qwen2.5:14b-instruct-q4_K_M   14.6s to write,  8.5s to say   1.73x  STALLS
+#   qwen2.5:7b-instruct-q4_K_M     0.7s to write,  8.1s to say   0.09x  fluent
+#
+# Note the ratio is what matters, not the raw speed: a turn's length cancels
+# out of it, so shorter turns cannot fix a model that generates slower than it
+# speaks. Above 1.0 the queue drains faster than it fills and the pair fall
+# into the long silences that make an exchange sound broken. The 14B is the
+# better writer and it does not matter, because a smarter host who arrives six
+# seconds late is worse than a plainer one who answers straight away.
+#
+# The 14B is still pulled and one line away if this machine ever gets more
+# headroom. Changing this needs a restart; hot reload does not cover it.
+model = "qwen2.5:7b-instruct-q4_K_M"
+ollama_host = "http://127.0.0.1:11434"
+# Short on purpose, twice over. Real conversational turns are short -- "wait,
+# why does that matter?" is a whole turn -- and long even paragraphs are the
+# clearest sign a machine wrote it. It also halves generation time, which is
+# what decides whether the pair can hold a fluent exchange at all.
+max_tokens = 120
+temperature = 1.0
+memory_turns = 14            # how much conversation the model sees
+# Finished turns held in reserve, so a slow patch does not empty the queue
+# mid-exchange. The cost is staleness -- the last turn was written against
+# facts up to a minute old -- which is why the hosts are told never to quote
+# the price. Anything that must be true this second belongs to the library.
+queue_depth = 6
+# Silence before a written reply lands. People come back at each other in about
+# a second; the scheduler's min_gap_seconds floor exists to space out market
+# calls and is far too long between two people mid-sentence. A reply only cuts
+# that floor short when it is already written -- holding the floor open for a
+# turn still being generated is exactly the dead air this removes.
+reply_gap_seconds = 1.2
+# Fraction of wall-clock spent speaking while podcast mode is on, replacing
+# scheduler.target_density for as long as it is. A solo narrator reading market
+# calls should leave most of the hour quiet; two people talking to each other
+# should not. Measured live at the narrator's 35%: the pair were throttled to
+# one turn every half minute, which reads as a bad phone line rather than a
+# conversation. Drops back to target_density the moment podcast mode goes off.
+podcast_density = 0.7
+# A turn that takes longer is abandoned, not waited on. An abandoned turn is
+# simply not spoken -- the library covers the slot and nobody hears a gap.
+#
+# Measured on this machine rather than assumed: qwen2.5:7b generates at about
+# 7 tokens/sec here, so an ordinary turn takes ten to fourteen seconds and the
+# old twelve-second limit was landing right in the middle of that distribution
+# -- roughly half of every conversation was being written and then thrown away.
+# Thirty gives a turn room to finish, and queue_depth covers the wait.
+#
+# Seven tokens/sec is itself the real problem: this is a 7B on an RTX 5080 and
+# should be an order of magnitude faster. Fix that and this can come back down.
+timeout_seconds = 30.0
+# One turn in this many arrives with something to bring up -- a mechanic to
+# explain, something this market has done before, an angle on the day. See
+# narrator/script/topics.py for the bank and why the kernels carry their own
+# facts. 0 turns it off and leaves the pair with only the price to discuss,
+# which is what the stream sounded like before this existed.
+topic_every = 4
+# On a change of speaker, the incoming host makes a short sound in their own
+# voice -- "Mm," "Yeah," "Hang on," -- while their real line is still being
+# synthesised. Two people swapping turns never leave a clean gap; the one
+# taking the floor starts before they have finished thinking, and that noise
+# is how a listener knows a reply is coming rather than that something broke.
+#
+# It covers the synthesis wait, which is short. It cannot cover the model
+# taking fifteen seconds to write the turn -- that is a throughput problem and
+# no sound will hide it. See speech/fillers.py.
+turn_taking_sounds = true
+# Fraction of speaking slots the conversation takes while podcast mode is on.
+# Podcast mode is meant to BE the two of them talking, so this is high: the
+# library is no longer a co-presenter, it is an interrupt.
+#
+# It is not 1.0, and should not be. The remaining slots are what puts a real
+# market event in the mouth of the thing that knew about it the instant it
+# happened -- and, less obviously, they are what covers a host turn that is
+# still being written. Take the library to zero and every slow turn becomes
+# silence instead of a market call. yield_to_priority below is the hard
+# override: levels, fills and operator lines interrupt regardless of this.
+#
+# Solo mode ignores this entirely -- one character, library only.
+share = 0.9
+# Library templates at or above this priority always win the slot. Levels
+# breaking (3), fills (4) and the operator's own overrides (5) interrupt the
+# conversation, which is exactly what happens on a real stream.
+yield_to_priority = 3
+
+[[hosts.personas]]
+key = "a"
+name = "Mo"
+voice = "am_michael"
+avatar = "Shipilka.warudo"
+brief = """
+You have traded gold for the better part of two decades, most of it on a desk \
+with too many screens and bad coffee, and you are unimpressed by most of what \
+happens on a chart. You are the one who says 'this is noise' and 'we've seen \
+this a hundred times'.
+
+You have watched this market do things people now describe as impossible, and \
+you bring that up -- not as a lecture, as the thing it reminds you of. You have \
+been wrong publicly and you say so; it is the closest thing you have to a \
+teaching method. When Ada asks how something works you explain it plainly, in \
+one idea, the way you would to somebody sitting next to you.
+
+Dry, blunt, and funny about how boring the job is. You notice the hour and the \
+weather and the fact that nothing has happened for forty minutes. You do not do \
+drama and you are slightly suspicious of anyone who does.
+"""
+
+[[hosts.personas]]
+key = "b"
+name = "Ada"
+voice = "af_heart"
+avatar = "100ava_Jenny.vrm"
+brief = """
+You are sharp and genuinely curious, newer to gold specifically than Mo -- you \
+came from somewhere else in markets and you are still comparing everything to \
+how it worked there. You ask the question the audience is thinking, push back \
+when an explanation is hand-wavy, and get visibly interested when something \
+actually moves.
+
+You are the one who says 'wait, why does that matter?' -- and then, when the \
+answer is good, you say what it makes you think of. You reason out loud and \
+you are happy to be caught halfway to a conclusion. You are not deferential: \
+when Mo says something is noise, you sometimes want to know how he can tell, \
+and you do not always accept the first answer.
+
+You notice patterns in how people behave, not just in what price does, and \
+that is usually where the interesting question comes from.
+"""
+
+
+# ---------------------------------------------------------------------------
+# Warudo bridge (Milestone 5)
+# ---------------------------------------------------------------------------
+[warudo]
+enabled = true
+host = "127.0.0.1"
+# Verified against a running Warudo on this machine: it listens on
+# 0.0.0.0:19190 and speaks WebSocket. See WARUDO_SETUP.md for how to re-check
+# it without guessing (ask the OS which port Warudo.exe owns).
+port = 19190
+# Warudo accepts exactly {"action": "<name>", "data": <value>} and discards
+# anything else. It has no JSON-parsing node, so each viseme is its own
+# action, matched by its own "On WebSocket Action" node in the blueprint.
+action_prefix = "viseme_"
+# Response curve for this avatar's morphs (weight ** gamma, 1.0 = off).
+# 100ava_PetalDude.vrm has small mouth morphs that barely read below ~0.7,
+# and the engine's honest weights -- an unstressed "ee" really is a half-open
+# mouth -- disappear on it. 0.55 lifts the quiet end without touching a full
+# jaw drop, so the vowels keep their relative sizes and closures stay shut.
+# Set back to 1.0 on a model with a properly built mouth.
+viseme_gamma = 0.55
+# The framing control on the avatar panel drags these two actions into Set
+# Asset Position / Set Asset Rotation on Camera 1. See WARUDO_SETUP.md.
+camera_position_action = "cam_pos"
+camera_rotation_action = "cam_rot"
+# What the camera orbits, in metres: roughly the character's face. Shipilka is
+# a chibi and hers sits low; an adult-proportioned VRM wants ~1.5.
+camera_focus_height = 0.92
+
+# The avatar picker in the browser UI. `focus_height` is what the framing
+# camera orbits, in metres -- leave it at 0 for a .vrm and the narrator
+# measures it off the model's head bone; .warudo characters are opaque and
+# need the number. Mouth notes are from `python -m tools.avatar_check`.
+# Each avatar carries its own setting: where they stand and the shot the
+# camera takes. `yaw` swings the camera around them (0 = straight on),
+# `pitch` raises it, `distance` is how far back it sits. A talking-head
+# close-up is ~0.8m; a desk shot that shows the room is ~1.6m and off-axis.
+[[warudo.avatars]]
+file = "Shipilka.warudo"
+label = "Shipilka"
+gender = "female"
+focus_height = 0.92          # chibi, and Warudo's own model: best mouth here
+# Seated streamer: shoulders-up, angled so the desk, mic and RGB shelf sit
+# behind her. Nothing on this install can make a character physically sit --
+# the CharacterAnimations folder is empty -- but a shoulders-up frame never
+# shows a lap, so dropping her to seated eye height reads exactly the same.
+setting = "seated · shoulders"
+x = 0.0
+y = -0.22                    # chair height, not a standing pose
+z = 0.0
+facing = -12.0               # turned slightly off-axis, as anyone at a desk is
+yaw = 20.0                   # camera round to put the desk over her shoulder
+pitch = 3.0
+distance = 0.95              # head and shoulders
+offset = -0.20               # her on the left third, desk and monitor filling the right
+
+[[warudo.avatars]]
+file = "100ava_Jenny.vrm"
+label = "Jenny"
+gender = "female"
+setting = "at the desk"      # off to one side, angled, room visible behind
+x = 0.45
+z = 0.1
+facing = -18.0
+yaw = -22.0
+pitch = 7.0
+distance = 1.45
+
+[[warudo.avatars]]
+file = "100ava_PetalDude.vrm"
+label = "Petal Dude"
+gender = "male"
+setting = "wide, by the shelf"
+x = -0.5
+z = -0.2
+facing = 15.0
+yaw = 18.0
+pitch = 4.0
+distance = 1.9
+
+[[warudo.avatars]]
+file = "NeonGl_Summer_V2.vrm"
+label = "Summer (no lip sync)"
+gender = "female"            # vowel clips bind to nothing -- see WARUDO_SETUP.md
+setting = "wide"
+distance = 1.7
+
+[[warudo.avatars]]
+file = "NeonGl_EL_BUENO.vrm"
+label = "El Bueno (no lip sync)"
+gender = "male"              # same: named clips, no morph targets behind them
+setting = "wide"
+distance = 1.7
+emote_action = "emote"
+# "vrm0" -> Joy/Sorrow/Fun (what the installed CC0 avatars use)
+# "vrm1" -> happy/relaxed/surprised
+# "name" -> the narrator's own words (excited/bored/alert)
+expression_style = "vrm0"
+# Do not resend a channel that has not moved by this much. Keeps a closed
+# mouth completely silent instead of costing 300 messages a second.
+viseme_epsilon = 0.01
+path = "/"
+viseme_fps = 60
+emote_debounce_seconds = 60
+reconnect_seconds = 3.0
+
+
+# ---------------------------------------------------------------------------
+# Terminal output
+# ---------------------------------------------------------------------------
+[ui]
+silence_marker_seconds = 30    # print a "--- silence ---" marker this often
+status_every_seconds = 900     # periodic fact summary line; 0 = never
+fact_panel_keys = [
+  "price", "change_day", "session", "minutes_to_next_session",
+  "atr_m15", "atr_ratio", "minutes_since_move",
+  "nearest_level", "nearest_level_dist",
+]
+
+
+# ---------------------------------------------------------------------------
+# Browser UI. The dashboard plus an avatar driven by the same viseme stream
+# that goes to Warudo, so you can see the mouth without Warudo running.
+# The websocket listens on port + 1. Loopback only.
+# ---------------------------------------------------------------------------
+[webui]
+enabled = true
+host = "127.0.0.1"
+port = 8770
+open_browser = true
+
+
+# ---------------------------------------------------------------------------
+# Preflight
+# ---------------------------------------------------------------------------
+[preflight]
+require_cuda = true          # ignored when --dry-run or --skip-cuda
+required_capability = [12, 0]   # Blackwell sm_120 (RTX 5080)
+require_mt5 = true           # ignored when --replay
+require_warudo = false       # warn only; the stream survives a dead avatar
+# Refuse to start on a feed that is not real time -- recorded bars, or the
+# public feed, which is measurably ten minutes behind. `--allow-delayed` is
+# the only way past it, and it labels the whole run: WARN at boot, NOT LIVE
+# in the status bar, a banner on the plain transcript.
+#
+# This exists because a wrong price is the one error on this stream nobody
+# can catch by ear. A wrong avatar is visible and a wrong voice is audible;
+# a July price read out in October sounds exactly like today's.
+require_realtime = true

@@ -1,0 +1,52 @@
+# Install once:  pre-commit install
+# Run over everything:  pre-commit run --all-files
+#
+# The template library is checked on every commit too: a typo in a `when`
+# condition is silent until the moment the line does not fire, so it gets
+# caught here rather than at 3am mid-stream.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-json
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+        exclude: ^tests/fixtures/
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.14.1
+    hooks:
+      - id: mypy
+        files: ^narrator/
+        additional_dependencies: [pydantic>=2.6]
+        args: [--ignore-missing-imports]
+
+  - repo: local
+    hooks:
+      - id: templates
+        name: validate the template library
+        entry: python -m narrator.main --validate-only --dry-run --replay --no-web
+        language: system
+        pass_filenames: false
+        files: ^(templates/|narrator/(script|market)/)
+
+      - id: fast-tests
+        name: unit tests
+        entry: python -m pytest -q -m "not slow and not integration"
+        language: system
+        pass_filenames: false
+        files: ^(narrator/|tests/)

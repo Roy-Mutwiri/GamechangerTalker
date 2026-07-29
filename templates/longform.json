@@ -1,0 +1,89 @@
+[
+  {
+    "id": "long.session_story",
+    "category": "human",
+    "priority": 2,
+    "when": "market_open and stream_minutes > 25 and last_line_words < 14",
+    "cooldown": 360,
+    "max_per_session": 16,
+    "notes": "A proper ramble: where the day started, what it did, where it stands. Every number is a fact, so it is long without being padding. Gated on last_line_words so two rambles never stack -- rhythm is about consecutive lines, not any one of them.",
+    "variants": [
+      "So where we actually are: we opened at {day_open}, ran up and down inside a {day_range} range, and after all that we're sitting at {price}, which is {change_day} on the day. All that movement to end up more or less where we started.",
+      "Let me put the whole picture together for you. Yesterday's range was {pdh} at the top and {pdl} at the bottom. Today we opened at {day_open} and we've been at {price}. The nearest thing worth watching is {nearest_level}, about {nearest_level_dist} away.",
+      "If you've been away from the screen — we've done nothing dramatic. {day_range} between the high and the low, {change_day} on the day, currently {price}. The fifteen minute range is running {atr_m15}, which is about what you'd expect for this hour."
+    ]
+  },
+  {
+    "id": "long.thinking_out_loud",
+    "category": "human",
+    "priority": 2,
+    "when": "market_open and minutes_since_move > 3 and last_line_words < 12",
+    "cooldown": 432,
+    "max_per_session": 14,
+    "notes": "Reasoning aloud rather than reporting. Streams are mostly monological commentary with no direct recipient -- this is that, and it is the register a bare price read never reaches.",
+    "variants": [
+      "The thing I keep coming back to is {nearest_level}. We're {nearest_level_dist} off it, and price has been drifting around it for a while now without committing either way. Either somebody steps in there, or we keep grinding sideways until a session change forces the issue.",
+      "What I'd want to see, personally, is a bit more range. {atr_m15} on the fifteen minute isn't enough to do anything with. When it's this tight you get chopped up going both ways, and the honest thing to say is that there's nothing here worth acting on yet.",
+      "Sitting at {price}, and I'll be straight with you — this is the part of the day where nothing gets decided. The volume isn't here, the range isn't here, and the levels either side are far enough away that we could sit in the middle for another hour without it meaning anything."
+    ]
+  },
+  {
+    "id": "long.level_context",
+    "category": "human",
+    "priority": 3,
+    "when": "market_open and nearest_level_dist < 4 and last_line_words < 14",
+    "cooldown": 420,
+    "max_per_session": 14,
+    "notes": "Long, but earned by proximity: when price is near a level there is genuinely more to say, and the extra length carries information rather than filler.",
+    "variants": [
+      "Right, we're {nearest_level_dist} from {nearest_level} now, which is close enough to matter. Levels like this either hold and we bounce away from them, or they go and everybody who was leaning on them has to do something about it. Watching how price behaves in the next few minutes tells you which.",
+      "This is the bit worth paying attention to. {nearest_level} is {nearest_level_dist} away, price is {price}, and the fifteen minute range is {atr_m15}. Put those three numbers together and you've got a market that can reach that level inside the next couple of bars if it decides to."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "long.weekend_ramble",
+    "category": "human",
+    "priority": 2,
+    "when": "not market_open and stream_minutes > 15 and last_line_words < 14",
+    "cooldown": 900,
+    "max_per_session": 8,
+    "notes": "The market is shut, so there is no new information at all -- which is exactly when a long, unhurried line is the right shape. Nothing to report, so talk instead.",
+    "variants": [
+      "Market's closed, so there's nothing coming in. Last price we had was {price}. This is the part of the week where the screen doesn't change and there's genuinely nothing to watch, which is a good time to go back over what happened and be honest with yourself about it.",
+      "Nothing's moving because nothing's open. Weekends are for reviewing rather than reacting. Last we saw was {price}, and it'll be there when everything opens again."
+    ]
+  },
+  {
+    "id": "short.reaction",
+    "category": "bridge",
+    "priority": 1,
+    "when": "last_line_words > 18",
+    "cooldown": 240,
+    "max_per_session": 20,
+    "notes": "The other half of burstiness. A two word line lands hardest right after a long one, and gated this way it can only ever appear there -- which is precisely the alternation the rhythm needs.",
+    "variants": [
+      "Anyway.",
+      "So. Yeah.",
+      "That's the state of it.",
+      "Moving on.",
+      "Right.",
+      "There we are."
+    ]
+  },
+  {
+    "id": "short.market_beat",
+    "category": "bridge",
+    "priority": 1,
+    "when": "market_open and last_line_words > 15",
+    "cooldown": 300,
+    "max_per_session": 18,
+    "notes": "A short factual beat after a long one. Keeps the alternation without wasting the slot on filler.",
+    "variants": [
+      "{price}.",
+      "Still {price}.",
+      "{price}, unchanged.",
+      "{nearest_level} still the one."
+    ]
+  }
+]

@@ -1,0 +1,90 @@
+[
+  {
+    "id": "story.level_paid_off",
+    "category": "story",
+    "priority": 4,
+    "when": "callback_level != \"none\" and minutes_since_event < 3",
+    "cooldown": 240,
+    "max_per_session": 10,
+    "notes": "The payoff. Only fires when a level this narrator itself flagged earlier has since given way -- callback_level is None until both halves have happened, and a comparison against None is False, so it stays silent rather than inventing a set-up it never made.",
+    "variants": [
+      "There it goes. That's the level I flagged earlier, gone.",
+      "And there's the break. I said that one was worth watching.",
+      "That level I mentioned? Not a level any more."
+    ],
+    "emote": "surprised"
+  },
+  {
+    "id": "story.pdl_still_holding",
+    "category": "story",
+    "priority": 2,
+    "when": "minutes_since_pdl_mentioned > 12 and pdl_dist < 6 and not pdl_tested",
+    "cooldown": 252,
+    "max_per_session": 6,
+    "notes": "A set-up that has not paid off yet. Reads as patience rather than repetition because it names the wait.",
+    "variants": [
+      "Yesterday's low is still sitting there untouched, same as when I mentioned it.",
+      "Still nobody's been down to yesterday's low. It's been a while now.",
+      "That low from yesterday is holding. Nothing's tested it since I brought it up."
+    ]
+  },
+  {
+    "id": "story.quiet_stretch",
+    "category": "story",
+    "priority": 2,
+    "when": "minutes_since_event > 25 and market_open",
+    "cooldown": 360,
+    "max_per_session": 6,
+    "notes": "Nothing has happened for a while, and saying so is more honest than filling the gap with another price read.",
+    "variants": [
+      "Nothing's actually happened in about half an hour now.",
+      "It's been quiet a while. No levels touched, no real range.",
+      "We're in a dead patch. Last thing worth mentioning was a good while back."
+    ],
+    "emote": "bored"
+  },
+  {
+    "id": "story.busy_session",
+    "category": "story",
+    "priority": 3,
+    "when": "levels_broken > 2 and market_open",
+    "cooldown": 540,
+    "max_per_session": 5,
+    "notes": "Counts the session's own history back to the audience. Only true after the events have actually been observed.",
+    "variants": [
+      "That's three levels gone today. Busy one.",
+      "We've taken out a few levels this session now. It's been moving.",
+      "Plenty going on today. More levels broken than held."
+    ],
+    "emote": "excited"
+  },
+  {
+    "id": "story.first_move",
+    "category": "story",
+    "priority": 3,
+    "when": "events_this_session == 1 and minutes_since_event < 4 and market_open",
+    "cooldown": 720,
+    "max_per_session": 3,
+    "notes": "The first thing to happen after a flat open. Fires once, in the moment, and never again in the session.",
+    "variants": [
+      "First real move of the session, that.",
+      "That's the first thing worth mentioning all session.",
+      "Been flat all morning. That's the first move."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "story.range_revisited",
+    "category": "story",
+    "priority": 2,
+    "when": "minutes_since_range_mentioned > 15 and minutes_since_move > 20",
+    "cooldown": 360,
+    "max_per_session": 6,
+    "notes": "Returns to a subject it raised earlier and reports that nothing has changed. The callback is what stops it sounding like the same observation twice.",
+    "variants": [
+      "That range I mentioned is still the range. Nothing's changed.",
+      "Same range as when I brought it up. Still going nowhere.",
+      "We're where we were. That tight range has held the whole time."
+    ]
+  }
+]

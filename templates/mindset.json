@@ -1,0 +1,93 @@
+[
+  {
+    "id": "mindset.origin_long",
+    "category": "human",
+    "priority": 2,
+    "when": "stream_minutes > 20 and last_line_words < 14",
+    "cooldown": 900,
+    "max_per_session": 6,
+    "notes": "EDIT THESE TO BE TRUE. This is the operator's own story and it should be his, not a plausible-sounding one written for him -- an audience forgives a plain story and never forgives a borrowed one. Written long on purpose: a backstory told in six words is a slogan.",
+    "variants": [
+      "People ask how this started. Honestly, badly. I spent the first year staring at charts I didn't understand, convinced everybody else could see something I couldn't. Turned out they couldn't either. Most of them were guessing with more confidence than me, and confidence is not the same thing as being right.",
+      "The first year I lost money I didn't have. The second year I lost less. The third year I stopped counting wins and started counting whether I'd followed my own rules, and that's the year it changed. Not because I got smarter. Because I got boring.",
+      "I nearly quit twice. Once after a week that took everything I'd built up over three months, and once when I just got tired of the screen. Both times I stopped for a while and came back, and both times the market was exactly where I left it, doing exactly the same thing. It doesn't miss you."
+    ]
+  },
+  {
+    "id": "mindset.discipline_long",
+    "category": "human",
+    "priority": 2,
+    "when": "market_open and minutes_since_move > 4 and last_line_words < 13",
+    "cooldown": 540,
+    "max_per_session": 13,
+    "notes": "Process talk, not advice. Nothing here says what to do with a position -- it is about the person, which is the only part of this a stream can honestly help with.",
+    "variants": [
+      "The thing nobody tells you is how much of this is just sitting still. Everyone comes in wanting the exciting part, and the exciting part is maybe five percent of the day. The other ninety-five is what we're doing right now — watching a number not move, and not making something happen out of boredom.",
+      "You don't get paid for being busy here. There's no bonus for screen time. Some of the best days I've had were the ones where I did nothing at all, and the worst were the ones where I felt like I had to justify being at the desk.",
+      "Being wrong is not the problem. Being wrong and arguing with it is the problem. The market doesn't know you're in it, doesn't care what you paid, and will not come back to a level just because it would suit you.",
+      "Patience is the whole edge for most people. Not a strategy, not an indicator. Just the ability to sit through the boring part without needing to feel clever."
+    ],
+    "emote": "neutral"
+  },
+  {
+    "id": "mindset.short_truth",
+    "category": "bridge",
+    "priority": 1,
+    "when": "last_line_words > 16",
+    "cooldown": 600,
+    "max_per_session": 12,
+    "notes": "The short counterpunch to the long ones. Reads as a thought landing rather than a lesson being delivered.",
+    "variants": [
+      "Slow is fine.",
+      "Nobody's watching your P and L but you.",
+      "The market will still be here tomorrow.",
+      "Boring is a strategy.",
+      "You can always do nothing.",
+      "Missing one costs you nothing."
+    ]
+  },
+  {
+    "id": "mindset.kept_going",
+    "category": "human",
+    "priority": 2,
+    "when": "stream_minutes > 60 and last_line_words < 14",
+    "cooldown": 1080,
+    "max_per_session": 5,
+    "notes": "The 'what if you gave up' angle, told without triumph. Survivorship framed honestly: staying is the achievement, not winning.",
+    "variants": [
+      "Someone asked me what would have happened if I'd stopped. I think about that. I'd have a bit more money in the short run and no idea what I was capable of in the long run. The people who quit aren't lazy — they just ran out of reasons to keep showing up before the thing started working.",
+      "Everybody who's still doing this went through a stretch where it made no sense to continue. That's not a story about being tough. It's just what the middle of it looks like.",
+      "The difference between people who make it and people who don't is rarely talent. It's usually just who was still at the desk after the boring year."
+    ]
+  },
+  {
+    "id": "mindset.on_a_move",
+    "category": "human",
+    "priority": 3,
+    "when": "atr_ratio > 1.6 and last_line_words < 14",
+    "cooldown": 540,
+    "max_per_session": 10,
+    "notes": "Earned by volatility: when it moves, the mindset point is about not being swept up, which is the moment it is actually useful rather than decorative.",
+    "variants": [
+      "This is where people give it all back. It moves, the heart rate goes up, and suddenly the plan you wrote when you were calm looks too slow. It isn't. You are just excited.",
+      "Fast markets make everybody feel like a genius for about twenty minutes.",
+      "When it's moving like this the temptation is to do more. Usually the right answer is to do exactly what you already decided, at the size you already decided."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "mindset.quiet_encouragement",
+    "category": "bridge",
+    "priority": 1,
+    "when": "minutes_since_move > 5",
+    "cooldown": 720,
+    "max_per_session": 12,
+    "notes": "Warmth in dead air. A stream that only speaks when the market does feels like a machine with a mute button.",
+    "variants": [
+      "Whatever you're working on out there, keep at it.",
+      "Good to have company while we wait.",
+      "If today's been rough, it's just one day of many.",
+      "Nobody gets this right every time. Not me either."
+    ]
+  }
+]

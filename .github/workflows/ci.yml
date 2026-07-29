@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # Windows, because that is where this runs: MetaTrader5 is Windows-only
+    # and the audio path is WASAPI.
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          # CPU torch in CI: no GPU on the runner, and nothing under test
+          # needs one. The Blackwell/cu128 requirement is a deploy concern,
+          # enforced at boot by narrator/preflight.py.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format
+        run: ruff format --check .
+
+      - name: Types
+        run: mypy
+
+      - name: Templates
+        run: python -m narrator.main --validate-only --dry-run --replay --no-web
+
+      - name: Tests
+        run: pytest --cov --cov-report=term-missing --cov-report=xml
+
+      - name: Deterministic simulation
+        # A 12 hour stream in a few seconds. Catches anything that stops the
+        # library speaking without needing a market, a GPU or an avatar.
+        run: python -m narrator.main --simulate --minutes 720 --seed 1
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: ignore

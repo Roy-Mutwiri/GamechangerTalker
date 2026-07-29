@@ -1,0 +1,88 @@
+[
+  {
+    "id": "community.quiet_invite",
+    "category": "community",
+    "priority": 2,
+    "when": "promo_due and minutes_since_move > 12 and stream_minutes > 8",
+    "cooldown": 540,
+    "max_per_session": 6,
+    "notes": "The dead-air ask. Nothing is happening, so sending people somewhere is the most useful thing to do with the silence rather than an interruption of it.",
+    "variants": [
+      "Nothing moving right now, so while we wait — {community_platform}'s {community_name}, {community_where}. Come say hello.",
+      "Quiet patch. Good time to join the {community_platform}, it's {community_name}, {community_where}.",
+      "While it's slow — the {community_platform} group is {community_name}. {community_where} if you want in."
+    ]
+  },
+  {
+    "id": "community.after_the_move",
+    "category": "community",
+    "priority": 2,
+    "when": "promo_due and atr_ratio > 1.5 and stream_minutes > 10",
+    "cooldown": 720,
+    "max_per_session": 5,
+    "notes": "Earned by a moment. A plug straight after something happened has a reason to exist, which is the difference between a mention and an advert.",
+    "variants": [
+      "Moves like that get talked about properly in the {community_platform}. {community_name}, {community_where}.",
+      "That's the sort of thing we go over in {community_name} on {community_platform}. {community_where}.",
+      "If you want the levels written down rather than just said out loud, that's {community_name} on {community_platform}."
+    ],
+    "emote": "excited"
+  },
+  {
+    "id": "community.for_the_new_ones",
+    "category": "community",
+    "priority": 2,
+    "when": "promo_due and stream_minutes > 25",
+    "cooldown": 900,
+    "max_per_session": 6,
+    "notes": "Aimed at people who arrived mid-stream, which on a rolling live stream is most of them.",
+    "variants": [
+      "If you've just walked in — {community_name} on {community_platform}, {community_where}. That's where the rest of it lives.",
+      "New faces, welcome. The {community_platform} is {community_name}, {community_where}.",
+      "For anyone who just joined: {community_name}, on {community_platform}. {community_where}."
+    ]
+  },
+  {
+    "id": "community.before_session",
+    "category": "community",
+    "priority": 2,
+    "when": "promo_due and minutes_to_next_session < 25 and market_open",
+    "cooldown": 1080,
+    "max_per_session": 5,
+    "notes": "Tied to the clock. A reason to join *now* rather than eventually, because something is about to start.",
+    "variants": [
+      "{next_session} opens in {minutes_to_next_session}. If you want to watch it with people, {community_name} on {community_platform}.",
+      "Session's about to turn. {community_name}, {community_platform}, {community_where} — that's where it gets busy.",
+      "Before the open — {community_platform} group is {community_name}. {community_where}."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "community.plain_ask",
+    "category": "community",
+    "priority": 1,
+    "when": "promo_due and stream_minutes > 40",
+    "cooldown": 1080,
+    "max_per_session": 5,
+    "notes": "The direct one, kept low priority so it only surfaces when nothing better fits. Every stream needs a plain ask; it just should not be the usual one.",
+    "variants": [
+      "Quick one — the {community_platform} is {community_name}. {community_where}. That's the only plug you'll get for a while.",
+      "{community_name} on {community_platform}, {community_where}. That's me done asking.",
+      "Join the {community_platform} if you haven't. {community_name}, {community_where}."
+    ]
+  },
+  {
+    "id": "community.long_stream_thanks",
+    "category": "community",
+    "priority": 2,
+    "when": "promo_due and stream_minutes > 120",
+    "cooldown": 1440,
+    "max_per_session": 3,
+    "notes": "Late in a long stream, thanks first and the ask second. It reads as gratitude rather than a pitch because the order is honest.",
+    "variants": [
+      "Long session, and you're still here. Appreciate it. {community_name} on {community_platform} if you want to keep it going, {community_where}.",
+      "Thanks for sitting through the quiet bits with me. The {community_platform} is {community_name}.",
+      "Still here after all that. Respect. {community_name}, {community_platform}, {community_where}."
+    ]
+  }
+]

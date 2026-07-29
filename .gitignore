@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime output, not source
+logs/
+cache/
+
+# Downloaded avatars are big binaries, not source
+avatars/
+
+# Keep the committed fixture; ignore recordings the operator adds
+tests/fixtures/*.csv
+!tests/fixtures/xauusd_m1.csv

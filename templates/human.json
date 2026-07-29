@@ -1,0 +1,93 @@
+[
+  {
+    "id": "human.waiting_aloud",
+    "category": "bridge",
+    "priority": 1,
+    "when": "minutes_since_move > 6 and market_open",
+    "cooldown": 420,
+    "max_per_session": 14,
+    "notes": "A bridge, not a regular template: bridges are pulled only after a stretch of silence when nothing else qualifies, which is exactly the slot this belongs in. As an ordinary priority-1 line it lost to 150 others and fired four times in twelve hours. Says the waiting out loud instead of filling it with another price read -- a person watching a flat chart comments on the flatness, they do not re-read the price every twelve seconds.",
+    "variants": [
+      "Still watching. Nothing's asking to be traded yet.",
+      "We wait. That's most of this job.",
+      "I'd rather sit here saying nothing than make something up.",
+      "No setup, no story. Just gold sitting on its hands.",
+      "It'll move when it moves.",
+      "Watching paint dry, but the paint costs four thousand an ounce."
+    ],
+    "emote": "bored"
+  },
+  {
+    "id": "human.session_texture",
+    "category": "human",
+    "priority": 1,
+    "when": "market_open and stream_minutes > 20 and minutes_since_move > 4",
+    "cooldown": 540,
+    "max_per_session": 13,
+    "notes": "Talks about the shape of the day rather than the price. Gives the stream a sense of somebody being present rather than a ticker with a voice.",
+    "variants": [
+      "Sessions have a personality. This one's being polite.",
+      "{stream_minutes} in and the market's given us very little to work with.",
+      "Some days you talk about the move. Some days you talk about the lack of one.",
+      "Every day looks the same until it doesn't."
+    ]
+  },
+  {
+    "id": "human.self_aware",
+    "category": "bridge",
+    "priority": 1,
+    "when": "lines_spoken > 80 and minutes_since_move > 8",
+    "cooldown": 1500,
+    "max_per_session": 6,
+    "notes": "A narrator that notices it has been talking a lot is more tolerable than one that does not.",
+    "variants": [
+      "I've said a lot of words about a chart that hasn't moved.",
+      "Feels like I'm narrating a photograph at this point.",
+      "If you're wondering whether I've frozen — no, the market has."
+    ],
+    "emote": "bored"
+  },
+  {
+    "id": "human.small_talk_levels",
+    "category": "human",
+    "priority": 1,
+    "when": "market_open and nearest_level_dist < 10 and minutes_since_move > 5",
+    "cooldown": 540,
+    "max_per_session": 13,
+    "notes": "Anchors the waiting to something concrete, so the filler still carries information.",
+    "variants": [
+      "We're just sort of leaning on {nearest_level} without doing anything about it.",
+      "{nearest_level} is right there. Nobody seems interested.",
+      "Price keeps looking at {nearest_level} and changing its mind."
+    ]
+  },
+  {
+    "id": "human.settling_in",
+    "category": "human",
+    "priority": 2,
+    "when": "stream_minutes > 5 and stream_minutes < 25",
+    "cooldown": 720,
+    "max_per_session": 5,
+    "notes": "Early-stream warmth. A stream that opens straight into numbers feels like a machine turned on.",
+    "variants": [
+      "Settling in. Coffee's on, charts are up.",
+      "Right, let's see what today wants to do.",
+      "Give it a few minutes and we'll know what kind of day this is."
+    ]
+  },
+  {
+    "id": "human.after_long_quiet",
+    "category": "bridge",
+    "priority": 1,
+    "when": "minutes_since_move > 9 and market_open",
+    "cooldown": 900,
+    "max_per_session": 8,
+    "notes": "For the genuinely long dead patches, where pretending to be interested would be worse than admitting the truth.",
+    "variants": [
+      "Nothing for a good while now. I'll keep you company anyway.",
+      "This is the part they don't put in the highlight reels.",
+      "Still flat. I'm not going to invent excitement for you."
+    ],
+    "emote": "bored"
+  }
+]

@@ -1,0 +1,271 @@
+[
+  {
+    "id": "engagement.welcome",
+    "category": "engagement",
+    "priority": 4,
+    "when": "stream_minutes < 3",
+    "cooldown": 2160,
+    "max_per_session": 3,
+    "variants": [
+      "Alright, we're live. Gold's at {price}.",
+      "Good to have you here. We're watching gold, currently {price}.",
+      "We're on. Gold sitting at {price}."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "engagement.just_joined",
+    "category": "engagement",
+    "priority": 2,
+    "when": "stream_minutes > 10",
+    "cooldown": 540,
+    "max_per_session": 19,
+    "variants": [
+      "If you've just joined, gold's at {price} and we're {change_day} on the day.",
+      "For anyone landing now, {price} on gold, {change_day} since the open.",
+      "Just come in? We're at {price}, {change_day} on the session.",
+      "Welcome in. {price}, and the day's range is {day_range}."
+    ]
+  },
+  {
+    "id": "engagement.stream_time",
+    "category": "engagement",
+    "priority": 1,
+    "when": "stream_minutes > 30",
+    "cooldown": 1080,
+    "max_per_session": 13,
+    "variants": [
+      "We've been on for {stream_minutes} now.",
+      "{stream_minutes} into the stream. Still watching.",
+      "That's {stream_minutes} of watching this thing together."
+    ]
+  },
+  {
+    "id": "engagement.long_stream",
+    "category": "engagement",
+    "priority": 2,
+    "when": "stream_minutes > 240",
+    "cooldown": 1440,
+    "max_per_session": 10,
+    "variants": [
+      "{stream_minutes} live. Long one today.",
+      "We're {stream_minutes} deep. Thanks for hanging around."
+    ]
+  },
+  {
+    "id": "engagement.thanks",
+    "category": "engagement",
+    "priority": 1,
+    "when": "stream_minutes > 45",
+    "cooldown": 1440,
+    "max_per_session": 13,
+    "variants": [
+      "Appreciate everyone in here watching with me.",
+      "Thanks for keeping the stream company.",
+      "Good to see people in the chat."
+    ]
+  },
+  {
+    "id": "engagement.patience",
+    "category": "engagement",
+    "priority": 2,
+    "when": "minutes_since_move > 25 and stream_minutes > 15",
+    "cooldown": 900,
+    "max_per_session": 13,
+    "variants": [
+      "This is the boring part, and the boring part is most of it.",
+      "Waiting is the job. {minutes_since_move} of nothing so far.",
+      "Nothing's happening, and that's fine. It doesn't owe us a move."
+    ],
+    "emote": "bored"
+  },
+  {
+    "id": "engagement.watching_levels",
+    "category": "engagement",
+    "priority": 2,
+    "when": "market_open and nearest_level_dist < 6 and stream_minutes > 10",
+    "cooldown": 720,
+    "max_per_session": 16,
+    "variants": [
+      "The level I've got my eye on is {nearest_level}, {nearest_level_dist} away.",
+      "{nearest_level} is what I'm watching, {nearest_level_dist} from here."
+    ]
+  },
+  {
+    "id": "engagement.chart_note",
+    "category": "engagement",
+    "priority": 1,
+    "when": "market_open and stream_minutes > 20",
+    "cooldown": 1440,
+    "max_per_session": 13,
+    "variants": [
+      "Chart's on screen if you want to follow along.",
+      "You can see the same chart I'm looking at.",
+      "Everything I'm calling out is right there on the chart."
+    ]
+  },
+  {
+    "id": "engagement.session_greeting_africa",
+    "category": "engagement",
+    "priority": 2,
+    "when": "session == \"london\" and stream_minutes > 5",
+    "cooldown": 2160,
+    "max_per_session": 5,
+    "variants": [
+      "London session, which is afternoon for most of us here in East Africa.",
+      "For those of you watching from Nairobi, this is the London session."
+    ]
+  },
+  {
+    "id": "engagement.session_greeting_ny",
+    "category": "engagement",
+    "priority": 2,
+    "when": "session == \"newyork\" and stream_minutes > 5",
+    "cooldown": 2160,
+    "max_per_session": 5,
+    "variants": [
+      "New York session, evening time for us here.",
+      "This is the New York session, which lands in our evening."
+    ]
+  },
+  {
+    "id": "engagement.session_greeting_asia",
+    "category": "engagement",
+    "priority": 2,
+    "when": "session == \"tokyo\" and stream_minutes > 5",
+    "cooldown": 2160,
+    "max_per_session": 5,
+    "variants": [
+      "Asian session, early morning here at home.",
+      "This is Asia's session. Morning for us."
+    ]
+  },
+  {
+    "id": "engagement.lines_count",
+    "category": "engagement",
+    "priority": 1,
+    "when": "lines_spoken > 60",
+    "cooldown": 2160,
+    "max_per_session": 6,
+    "variants": [
+      "That's {lines_spoken} calls out on this stream so far.",
+      "{lines_spoken} updates in already."
+    ]
+  },
+  {
+    "id": "engagement.quiet_market_chat",
+    "category": "engagement",
+    "priority": 1,
+    "when": "minutes_since_move > 40",
+    "cooldown": 1080,
+    "max_per_session": 13,
+    "variants": [
+      "Nothing to report. That itself is the report.",
+      "Still flat. I'll shout the moment something changes.",
+      "Market's asleep. We're not."
+    ],
+    "emote": "bored"
+  },
+  {
+    "id": "engagement.volatile_market_chat",
+    "category": "engagement",
+    "priority": 3,
+    "when": "atr_ratio > 1.6 and stream_minutes > 5",
+    "cooldown": 540,
+    "max_per_session": 13,
+    "variants": [
+      "It's moving now. Keep your eyes on it.",
+      "This is the part where things get interesting."
+    ],
+    "emote": "excited"
+  },
+  {
+    "id": "engagement.weekend_chat",
+    "category": "engagement",
+    "priority": 1,
+    "when": "not market_open",
+    "cooldown": 1080,
+    "max_per_session": 13,
+    "variants": [
+      "Nothing to trade over the weekend. Good time to review the week.",
+      "Market's closed, so this is just chart study now.",
+      "Weekend. The screens are quiet, which is healthy."
+    ]
+  },
+  {
+    "id": "engagement.new_session_ahead",
+    "category": "engagement",
+    "priority": 2,
+    "when": "minutes_to_next_session < 30 and market_open and stream_minutes > 10",
+    "cooldown": 900,
+    "max_per_session": 13,
+    "variants": [
+      "Stick around, {next_session} is in {minutes_to_next_session}.",
+      "{minutes_to_next_session} until {next_session}. Usually worth being here for."
+    ]
+  },
+  {
+    "id": "engagement.price_recap_for_chat",
+    "category": "engagement",
+    "priority": 2,
+    "when": "market_open and stream_minutes > 15",
+    "cooldown": 720,
+    "max_per_session": 19,
+    "variants": [
+      "Where we stand, {price}, {change_day} on the day, range {day_range}.",
+      "Quick state of play, gold {price}, day range {day_range}.",
+      "Recap. {price} now, opened {day_open}, {change_day} on the day."
+    ]
+  },
+  {
+    "id": "engagement.spread_warning_chat",
+    "category": "engagement",
+    "priority": 3,
+    "when": "spread > 0.8",
+    "cooldown": 720,
+    "max_per_session": 8,
+    "variants": [
+      "Spread's {spread} on my feed. Yours may look different, check your own broker.",
+      "Careful, spread's blown out to {spread} here."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "engagement.no_signals_reminder",
+    "category": "engagement",
+    "priority": 2,
+    "when": "stream_minutes > 25",
+    "cooldown": 2160,
+    "max_per_session": 8,
+    "variants": [
+      "I'm calling out what price is doing. What you do with it is your own decision.",
+      "This is commentary on the chart, not advice for your account.",
+      "I read the levels out. The trading decisions are yours."
+    ]
+  },
+  {
+    "id": "engagement.feed_stale",
+    "category": "engagement",
+    "priority": 4,
+    "when": "feed_stale and market_open",
+    "cooldown": 360,
+    "max_per_session": 10,
+    "variants": [
+      "My feed's gone quiet. Last price I have is {price}.",
+      "Data's lagging on my side. Give me a moment."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "engagement.back_online",
+    "category": "engagement",
+    "priority": 3,
+    "when": "market_open and not feed_stale and stream_minutes > 5",
+    "cooldown": 2160,
+    "max_per_session": 6,
+    "variants": [
+      "Feed's clean, prices are live. {price}.",
+      "Data's flowing fine. {price} on gold."
+    ]
+  }
+]

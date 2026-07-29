@@ -1,0 +1,286 @@
+[
+  {
+    "id": "volatility.expansion",
+    "category": "volatility",
+    "priority": 4,
+    "when": "atr_ratio > 1.5 and market_open",
+    "cooldown": 360,
+    "max_per_session": 16,
+    "variants": [
+      "This candle's running {atr_ratio} times the average range. Something's happening.",
+      "Range expansion here, {atr_ratio} times normal.",
+      "That's a big bar. {atr_ratio} times the usual fifteen minute range."
+    ],
+    "emote": "surprised"
+  },
+  {
+    "id": "volatility.big_expansion",
+    "category": "volatility",
+    "priority": 4,
+    "when": "atr_ratio > 2.5 and market_open",
+    "cooldown": 360,
+    "max_per_session": 13,
+    "variants": [
+      "Massive candle. {atr_ratio} times the normal range on the fifteen.",
+      "That's {atr_ratio} times average range. Somebody's moving size.",
+      "Look at that expansion, {atr_ratio} times what we normally get."
+    ],
+    "emote": "surprised"
+  },
+  {
+    "id": "volatility.contraction",
+    "category": "volatility",
+    "priority": 2,
+    "when": "range_state == \"contracting\" and market_open",
+    "cooldown": 720,
+    "max_per_session": 13,
+    "variants": [
+      "Ranges are contracting. Bars getting smaller.",
+      "Volatility's drying up here. Each candle smaller than the last.",
+      "Things are compressing. Average range on the fifteen is {atr_m15}."
+    ]
+  },
+  {
+    "id": "volatility.expanding_state",
+    "category": "volatility",
+    "priority": 3,
+    "when": "range_state == \"expanding\" and market_open",
+    "cooldown": 540,
+    "max_per_session": 13,
+    "variants": [
+      "Ranges are expanding now. Bars are getting bigger.",
+      "Volatility's picking up. Fifteen minute range averaging {atr_m15}.",
+      "Candles are widening out. Market's woken up a bit."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "volatility.ranging",
+    "category": "volatility",
+    "priority": 1,
+    "when": "range_state == \"ranging\" and market_open",
+    "cooldown": 1080,
+    "max_per_session": 10,
+    "variants": [
+      "Normal sort of range at the moment. {atr_m15} on the fifteen.",
+      "Volatility's about average. Nothing unusual."
+    ]
+  },
+  {
+    "id": "volatility.tight_range",
+    "category": "volatility",
+    "priority": 3,
+    "when": "bars_in_range > 8 and market_open",
+    "cooldown": 540,
+    "max_per_session": 13,
+    "variants": [
+      "{bars_in_range} fifteen minute bars inside the same little box.",
+      "That's {bars_in_range} candles stuck in one range.",
+      "We've had {bars_in_range} bars go nowhere. Coiling."
+    ],
+    "emote": "bored"
+  },
+  {
+    "id": "volatility.very_tight_range",
+    "category": "volatility",
+    "priority": 4,
+    "when": "bars_in_range > 14 and market_open",
+    "cooldown": 540,
+    "max_per_session": 10,
+    "variants": [
+      "{bars_in_range} bars in the same range now. That's a proper squeeze.",
+      "Fourteen plus bars boxed in. {bars_in_range} to be exact. This usually resolves at some point."
+    ],
+    "emote": "bored"
+  },
+  {
+    "id": "volatility.dead",
+    "category": "volatility",
+    "priority": 3,
+    "when": "minutes_since_move > 30 and market_open",
+    "cooldown": 540,
+    "max_per_session": 13,
+    "variants": [
+      "{minutes_since_move} without a move worth mentioning.",
+      "It's been dead for {minutes_since_move}.",
+      "Nothing for {minutes_since_move}. Just watching."
+    ],
+    "emote": "bored"
+  },
+  {
+    "id": "volatility.very_dead",
+    "category": "volatility",
+    "priority": 3,
+    "when": "minutes_since_move > 60 and market_open",
+    "cooldown": 720,
+    "max_per_session": 10,
+    "variants": [
+      "Over an hour without a real move. {minutes_since_move} to be exact.",
+      "{minutes_since_move} of absolutely nothing. Some days are like this.",
+      "This is the market testing your patience. {minutes_since_move} flat."
+    ],
+    "emote": "bored"
+  },
+  {
+    "id": "volatility.atr_context",
+    "category": "volatility",
+    "priority": 2,
+    "when": "market_open and stream_minutes > 10",
+    "cooldown": 1080,
+    "max_per_session": 10,
+    "variants": [
+      "Average fifteen minute range is {atr_m15} at the moment.",
+      "For context, the fifteen minute ATR is {atr_m15} and the hourly is {atr_h1}.",
+      "Hourly average range is {atr_h1} right now."
+    ]
+  },
+  {
+    "id": "volatility.high_atr",
+    "category": "volatility",
+    "priority": 3,
+    "when": "atr_h1 > 8 and market_open",
+    "cooldown": 1080,
+    "max_per_session": 8,
+    "variants": [
+      "Hourly ranges are big today, {atr_h1} on average.",
+      "{atr_h1} an hour on average. That's a wide day."
+    ]
+  },
+  {
+    "id": "volatility.low_atr",
+    "category": "volatility",
+    "priority": 2,
+    "when": "atr_h1 < 3 and market_open",
+    "cooldown": 1080,
+    "max_per_session": 8,
+    "variants": [
+      "Hourly range is only {atr_h1}. Slow conditions.",
+      "{atr_h1} an hour on average. Small day so far."
+    ]
+  },
+  {
+    "id": "volatility.release_up",
+    "category": "volatility",
+    "priority": 4,
+    "when": "atr_ratio > 1.8 and consecutive_bars > 1 and market_open",
+    "cooldown": 540,
+    "max_per_session": 13,
+    "variants": [
+      "There's the move. {atr_ratio} times range and buyers in control.",
+      "Range just released to the upside. {price}."
+    ],
+    "emote": "excited"
+  },
+  {
+    "id": "volatility.release_down",
+    "category": "volatility",
+    "priority": 4,
+    "when": "atr_ratio > 1.8 and consecutive_bars < -1 and market_open",
+    "cooldown": 540,
+    "max_per_session": 13,
+    "variants": [
+      "There's the move, and it's down. {atr_ratio} times normal range.",
+      "Range released to the downside. {price}."
+    ],
+    "emote": "excited"
+  },
+  {
+    "id": "volatility.quiet_before_ny",
+    "category": "volatility",
+    "priority": 3,
+    "when": "bars_in_range > 6 and next_session == \"newyork\" and minutes_to_next_session < 45",
+    "cooldown": 720,
+    "max_per_session": 6,
+    "variants": [
+      "Coiled up going into New York. {bars_in_range} bars in the same range.",
+      "Tight into the New York open. {minutes_to_next_session} to go."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "volatility.day_range_small",
+    "category": "volatility",
+    "priority": 2,
+    "when": "market_open and day_range < 8 and session_minutes_in > 60",
+    "cooldown": 1080,
+    "max_per_session": 8,
+    "variants": [
+      "Only {day_range} of range on the whole day so far.",
+      "{day_range} for the day. Narrow."
+    ]
+  },
+  {
+    "id": "volatility.day_range_big",
+    "category": "volatility",
+    "priority": 3,
+    "when": "market_open and day_range > 25",
+    "cooldown": 1080,
+    "max_per_session": 8,
+    "variants": [
+      "{day_range} of range today already. Busy one.",
+      "That's {day_range} between the high and the low. Wide day."
+    ],
+    "emote": "surprised"
+  },
+  {
+    "id": "volatility.consecutive_streak",
+    "category": "volatility",
+    "priority": 3,
+    "when": "consecutive_bars > 5 or consecutive_bars < -5",
+    "cooldown": 720,
+    "max_per_session": 10,
+    "variants": [
+      "{consecutive_bars} candles in the same direction. That's a streak.",
+      "Streak of {consecutive_bars} bars one way. Doesn't usually go on forever."
+    ],
+    "emote": "surprised"
+  },
+  {
+    "id": "volatility.spread_and_vol",
+    "category": "volatility",
+    "priority": 2,
+    "when": "spread > 0.45 and atr_ratio > 1.5",
+    "cooldown": 540,
+    "max_per_session": 8,
+    "variants": [
+      "Spread's opened up to {spread} with the volatility.",
+      "{spread} spread while it's moving like this. Normal for fast conditions."
+    ]
+  },
+  {
+    "id": "volatility.calm_after_move",
+    "category": "volatility",
+    "priority": 2,
+    "when": "market_open and atr_ratio < 0.4 and minutes_since_move > 10",
+    "cooldown": 720,
+    "max_per_session": 10,
+    "variants": [
+      "Settled right down. This bar's only {atr_ratio} of the average range.",
+      "Gone quiet again after that. {atr_ratio} times normal range on this candle."
+    ]
+  },
+  {
+    "id": "volatility.range_state_report",
+    "category": "volatility",
+    "priority": 1,
+    "when": "market_open and stream_minutes > 20",
+    "cooldown": 1440,
+    "max_per_session": 8,
+    "variants": [
+      "Ranges are {range_state} at the moment.",
+      "Volatility picture is {range_state} right now."
+    ]
+  },
+  {
+    "id": "volatility.no_conviction",
+    "category": "volatility",
+    "priority": 2,
+    "when": "market_open and consecutive_bars == 0 and minutes_since_move > 20",
+    "cooldown": 900,
+    "max_per_session": 8,
+    "variants": [
+      "No conviction either way here. Bars flipping back and forth.",
+      "Neither side wants it. {minutes_since_move} of indecision."
+    ]
+  }
+]

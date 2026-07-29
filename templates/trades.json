@@ -1,0 +1,124 @@
+[
+  {
+    "id": "trades.opened",
+    "category": "engagement",
+    "priority": 4,
+    "when": "trade_just_opened",
+    "cooldown": 240,
+    "max_per_session": 20,
+    "notes": "Reporting a fill that already happened, in the past tense, with no size and no invitation. The guard test bans the words that would turn this into a call; keeping it descriptive is not a workaround, it is the point -- the audience is watching someone work, not being told what to do.",
+    "variants": [
+      "Right, I'm in. {trade_direction} from {trade_open_price}.",
+      "That's me filled, {trade_direction} at {trade_open_price}. My own account, my own risk.",
+      "I've taken one here. {trade_direction} from {trade_open_price}. Not a recommendation, just showing you what I'm doing."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "trades.running",
+    "category": "engagement",
+    "priority": 2,
+    "when": "in_trade and trade_minutes > 4",
+    "cooldown": 300,
+    "max_per_session": 24,
+    "variants": [
+      "Still {trade_direction} from {trade_open_price}, {trade_minutes} in.",
+      "That position's {trade_minutes} old now, {trade_move} from where I got in.",
+      "I'm {trade_move} on the one I'm holding.",
+      "Position's still on. {trade_minutes} and counting."
+    ]
+  },
+  {
+    "id": "trades.winning",
+    "category": "engagement",
+    "priority": 2,
+    "when": "in_trade and trade_winning and trade_minutes > 6",
+    "cooldown": 420,
+    "max_per_session": 16,
+    "variants": [
+      "That one's working so far. {trade_move} from where I got in — and 'so far' is doing a lot of work in that sentence.",
+      "Green on that one. Doesn't mean anything until it's closed.",
+      "It's going my way for now. I've been here before and been wrong."
+    ],
+    "emote": "excited"
+  },
+  {
+    "id": "trades.losing",
+    "category": "engagement",
+    "priority": 2,
+    "when": "in_trade and not trade_winning and trade_minutes > 6",
+    "cooldown": 420,
+    "max_per_session": 16,
+    "notes": "Showing the losers matters more than showing the winners. A stream that only narrates the good ones teaches the audience something false about what this looks like.",
+    "variants": [
+      "That one's offside. {trade_move} against me now. This is the bit people don't post.",
+      "Underwater on it at the moment. Happens plenty.",
+      "Not going my way. I'll leave it on screen either way — you should see these too."
+    ]
+  },
+  {
+    "id": "trades.closed",
+    "category": "engagement",
+    "priority": 4,
+    "when": "trade_just_closed",
+    "cooldown": 240,
+    "max_per_session": 20,
+    "variants": [
+      "And that's closed out.",
+      "Done with that one. Flat again.",
+      "Closed. Back to watching."
+    ],
+    "emote": "alert"
+  },
+  {
+    "id": "trades.closed_won",
+    "category": "engagement",
+    "priority": 3,
+    "when": "trade_just_closed and last_close_won",
+    "cooldown": 300,
+    "max_per_session": 16,
+    "variants": [
+      "That one came off alright.",
+      "Closed that in profit. One doesn't prove anything.",
+      "Took it off green. On to the next bit of nothing."
+    ]
+  },
+  {
+    "id": "trades.closed_lost",
+    "category": "engagement",
+    "priority": 3,
+    "when": "trade_just_closed and not last_close_won",
+    "cooldown": 300,
+    "max_per_session": 16,
+    "variants": [
+      "That one cost me. It happens, and it'll happen again.",
+      "Closed that at a loss. No drama, next.",
+      "Took the loss on that. Sitting here pretending it didn't happen would be worse."
+    ]
+  },
+  {
+    "id": "trades.flat",
+    "category": "engagement",
+    "priority": 1,
+    "when": "not in_trade and stream_minutes > 20 and minutes_since_move > 3",
+    "cooldown": 600,
+    "max_per_session": 20,
+    "variants": [
+      "Nothing on for me right now. Just watching.",
+      "I'm flat. Perfectly happy to stay that way.",
+      "No position here. Most of the day looks like this."
+    ]
+  },
+  {
+    "id": "trades.day_count",
+    "category": "engagement",
+    "priority": 1,
+    "when": "closed_today > 2 and not in_trade",
+    "cooldown": 900,
+    "max_per_session": 10,
+    "variants": [
+      "That's {closed_today} closed today.",
+      "{closed_today} done and dusted so far today."
+    ]
+  }
+]
