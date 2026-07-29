@@ -25,6 +25,7 @@ async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--backend", default="anthropic", choices=("anthropic", "ollama"))
     ap.add_argument("--model", default="")
+    ap.add_argument("--width", type=int, default=0, help="capture width in pixels")
     args = ap.parse_args()
 
     cfg = load_config(project_root() / "config.toml")
@@ -46,7 +47,9 @@ async def main() -> int:
         model=model,
         api_key=key,
         backend=args.backend,
-        width=cfg.webui.avatar_width or 1280,
+        # The chart's own width, not the avatar's. A chart downscaled to 640
+        # is barely legible and the model starts inventing what it cannot read.
+        width=args.width or cfg.chart.width,
     )
     started = time.perf_counter()
     view = await eyes.look()

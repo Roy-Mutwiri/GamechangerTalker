@@ -67,17 +67,26 @@ class Action:
     says: str  # what the hosts are told just happened
 
 
-# TradingView takes a timeframe by typing it and pressing enter -- "15" then
-# enter is fifteen minutes, "1h" is an hour, "d" is daily. Typing into the
-# chart is how the application is designed to be driven, which is why this
-# needs no menus and no mouse.
+# TradingView takes a timeframe by typing it and pressing enter, and the FIRST
+# KEYSTROKE DECIDES WHICH BOX OPENS. A digit opens the interval box. A letter
+# opens the **symbol search**.
+#
+# That distinction is not cosmetic and it cost the operator's chart. The first
+# version of this table had the daily as ("d", "enter") and the hourly as
+# ("1", "h", "enter"). The "d" went into the symbol search, matched the ticker
+# "D", and switched a live XAUUSD chart to Dominion Energy on the NYSE --
+# silently, mid-stream, on the window the operator trades from.
+#
+# So every sequence here begins with a digit. Hours are expressed in minutes
+# ("60", "240") rather than "1h"/"4h", and the daily as "1d" rather than "d",
+# so the interval box is already open before any letter is typed.
 ACTIONS: dict[str, Action] = {
     "m1": Action("m1", ("1", "enter"), "the one-minute"),
     "m5": Action("m5", ("5", "enter"), "the five-minute"),
     "m15": Action("m15", ("1", "5", "enter"), "the fifteen-minute"),
-    "h1": Action("h1", ("1", "h", "enter"), "the hourly"),
-    "h4": Action("h4", ("4", "h", "enter"), "the four-hour"),
-    "d1": Action("d1", ("d", "enter"), "the daily"),
+    "h1": Action("h1", ("6", "0", "enter"), "the hourly"),
+    "h4": Action("h4", ("2", "4", "0", "enter"), "the four-hour"),
+    "d1": Action("d1", ("1", "d", "enter"), "the daily"),
     "back": Action("back", ("left", "left", "left", "left", "left"), "scrolled back"),
     "forward": Action("forward", ("right", "right", "right"), "scrolled forward"),
     "zoom_in": Action("zoom_in", ("plus",), "zoomed in"),
@@ -153,7 +162,54 @@ class ChartControl:
         self.actions_sent = 0
         self.skipped = 0
         self.last_error = ""
+        self.symbol = ""
         self._last_at = 0.0
+
+    # -- the symbol must not move --------------------------------------------
+
+    def _symbol(self, hwnd: int) -> str:
+        """The instrument, read off the window title.
+
+        TradingView titles itself "XAUUSD v 4,002.435 -0.65% / Layout", so the
+        first word is the symbol. Cheap, and it needs no capture.
+        """
+        length = user32.GetWindowTextLengthW(hwnd)
+        if not length:
+            return ""
+        buffer = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buffer, length + 1)
+        return buffer.value.split(" ")[0].strip()
+
+    def _check_symbol(self, hwnd: int, before: str) -> bool:
+        """Did the instrument change under us? If so, stop driving entirely.
+
+        This exists because it happened. A timeframe action that led with a
+        letter went into TradingView's symbol search instead of its interval
+        box and turned a live XAUUSD chart into Dominion Energy on the NYSE --
+        on the window the operator trades from, with nothing in the transcript
+        to say so.
+
+        The vocabulary is fixed so it cannot recur, but the class of failure
+        can: any keystroke that lands somewhere unexpected can move the chart
+        off the instrument the whole stream is narrating. Detecting it and
+        refusing to touch the chart again is far better than continuing to type
+        into a window that is not doing what we think.
+        """
+        if not before:
+            return True
+        after = self._symbol(hwnd)
+        if not after or after == before:
+            return True
+        self.enabled = False
+        self.last_error = f"symbol changed {before} -> {after}; control disabled"
+        log.error(
+            "chart control moved the symbol from %s to %s -- disabling control "
+            "for this run. The chart is on the wrong instrument; put it back "
+            "before relying on anything said about it.",
+            before,
+            after,
+        )
+        return False
 
     def ready(self, now: float | None = None) -> bool:
         now = now if now is not None else time.monotonic()
@@ -180,6 +236,7 @@ class ChartControl:
             self.last_error = "operator is typing elsewhere"
             return None
 
+        before = self._symbol(hwnd)
         previous = user32.GetForegroundWindow()
         try:
             user32.SetForegroundWindow(hwnd)
@@ -201,6 +258,13 @@ class ChartControl:
                     user32.SetForegroundWindow(previous)
 
         self._last_at = time.monotonic()
+        # The title needs a moment to catch up with the keystroke, or every
+        # check reads the state from before the action and never fires.
+        time.sleep(0.35)
+        if not self._check_symbol(hwnd, before):
+            return None
+
+        self.symbol = before
         self.actions_sent += 1
         if name in TIMEFRAMES:
             self.timeframe = name

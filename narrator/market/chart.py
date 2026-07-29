@@ -37,6 +37,7 @@ import asyncio
 import base64
 import ctypes
 import logging
+import re
 import subprocess
 import time
 from ctypes import wintypes
@@ -76,6 +77,34 @@ or late. Never "it is signalling a buy".
 - If the window is not a chart -- a settings dialog, a blank screen, a browser \
 tab -- say exactly that in one sentence and stop.
 """
+
+
+# The words an indicator writes on a chart, and what to call them instead.
+#
+# This is not censorship of the description, it is keeping the hosts out of a
+# trap. The operator's chart is stamped with "Buy" and "Sell" labels, and a
+# vision model reports them faithfully: "multiple buy and sell indicators
+# scattered across the chart" -- observed, verbatim, on the first run. That
+# text becomes host context, the hosts echo the words, and the advice guard
+# then drops the turn for saying "buy". The eyes would be quietly feeding the
+# conversation vocabulary that gets it thrown away.
+#
+# So the marker keeps its meaning and loses the word: nobody is told what to
+# do, and nothing downstream trips.
+_SCRUB = (
+    (re.compile(r"\bbuy(?:ing)?\s+(?:and\s+sell\s+)?signals?\b", re.I), "long-side markers"),
+    (re.compile(r"\bsell(?:ing)?\s+signals?\b", re.I), "short-side markers"),
+    (re.compile(r"\bbuy\s+and\s+sell\b", re.I), "long-side and short-side"),
+    (re.compile(r"\bbuy\b", re.I), "long-side"),
+    (re.compile(r"\bsell\b", re.I), "short-side"),
+)
+
+
+def scrub(text: str) -> str:
+    """Take the trade-call vocabulary out of a description of a chart."""
+    for pattern, replacement in _SCRUB:
+        text = pattern.sub(replacement, text)
+    return text.strip()
 
 
 @dataclass(frozen=True)
@@ -225,7 +254,7 @@ class ChartEyes:
                 self.last_error = "no TradingView window"
                 return self.view
             jpeg, width, height = shot
-            text = await self._describe(jpeg)
+            text = scrub(await self._describe(jpeg))
             if not text:
                 return self.view
             self.looks += 1
