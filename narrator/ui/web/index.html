@@ -448,6 +448,44 @@
   "use strict";
   const $ = id => document.getElementById(id);
 
+  // ------------------------------------------------------------ where and how
+  // Declared first because the rest of this file reads it. These were once
+  // defined down beside the socket code, four hundred lines below their first
+  // use, and `const` does not hoist: the page threw "Cannot access 'stageOnly'
+  // before initialization" on load and every line of script after it never
+  // ran. The symptom is a page that renders perfectly and does nothing at all
+  // -- no socket, no dropdowns, "connecting" forever -- which reads like a
+  // network problem and is not one.
+  const params = new URLSearchParams(location.search);
+
+  // Where the live data comes from.
+  //
+  //   local     the narrator serves this page itself, and its websocket is on
+  //             the next port up. Nothing to configure.
+  //   hosted    the page is on Vercel and the narrator is on a machine
+  //             somewhere else, reached through a tunnel. The relay URL comes
+  //             from ?relay= or from NARRATOR_RELAY baked in at build time.
+  //
+  // A page served over https may not open a ws:// socket -- browsers block it
+  // as mixed content, silently in some, with a console error in others. So a
+  // relay must be wss://, and forcing it here beats a page that never
+  // connects and never explains why.
+  const wsPort = params.get("ws") || (Number(location.port) + 1);
+  const relay = params.get("relay") || window.NARRATOR_RELAY || "";
+  let socketUrl = relay || `ws://${location.hostname}:${wsPort}`;
+  if (location.protocol === "https:" && socketUrl.startsWith("ws://")) {
+    socketUrl = "wss://" + socketUrl.slice(5);
+  }
+
+  // Stage view: characters only, for an OBS source or for someone who wants to
+  // watch rather than operate. The path counts as well as the query, because a
+  // Vercel rewrite sends /stage to index.html?view=stage on the server and the
+  // browser never sees that query -- location.search stays empty.
+  const stagePath = location.pathname.replace(/\/+$/, "");
+  const stageOnly =
+    (params.get("view") || "") === "stage" || stagePath.endsWith("/stage");
+  if (stageOnly) document.body.classList.add("stageonly");
+
   // ---------------------------------------------------------------- avatar
   // Mouth shapes per viseme, in SVG units. Blended by weight every frame.
   const SHAPES = {
@@ -1082,38 +1120,6 @@
   });
 
   // ---------------------------------------------------------------- socket
-  const params = new URLSearchParams(location.search);
-  const wsPort = params.get("ws") || (Number(location.port) + 1);
-
-  // Where the live data comes from.
-  //
-  //   local     the narrator serves this page itself, and its websocket is on
-  //             the next port up. Nothing to configure.
-  //   hosted    the page is on Vercel and the narrator is on a machine
-  //             somewhere else, reached through a tunnel. The relay URL comes
-  //             from ?relay= or from NARRATOR_RELAY baked in at build time.
-  //
-  // A page served over https may not open a ws:// socket -- browsers block it
-  // as mixed content, silently in some, with a console error in others. So a
-  // relay must be wss://, and saying so here beats a page that just never
-  // connects and never explains why.
-  const relay = params.get("relay") || window.NARRATOR_RELAY || "";
-  let socketUrl = relay || `ws://${location.hostname}:${wsPort}`;
-  if (location.protocol === "https:" && socketUrl.startsWith("ws://")) {
-    socketUrl = "wss://" + socketUrl.slice(5);
-  }
-
-  // Stage view: characters only. Also switches the avatar panel to the Warudo
-  // render, since a shared stage link showing the fallback SVG face is not
-  // what anyone opened it for.
-  // The path counts as well as the query. A Vercel rewrite sends /stage to
-  // index.html?view=stage on the server, and the browser never sees that
-  // query -- location.search stays empty, so checking only the param would
-  // serve the full dashboard on the URL meant to be characters-only.
-  const path = location.pathname.replace(/\/+$/, "");
-  const stageOnly = (params.get("view") || "") === "stage" || path.endsWith("/stage");
-  if (stageOnly) document.body.classList.add("stageonly");
-
   let ws = null, retry = 800;
 
   function connect(){
