@@ -51,6 +51,7 @@ VK = {
     "0": 0x30, "1": 0x31, "2": 0x32, "3": 0x33, "4": 0x34,
     "5": 0x35, "6": 0x36, "7": 0x37, "8": 0x38, "9": 0x39,
     "d": 0x44, "w": 0x57, "h": 0x48, "m": 0x4D, "r": 0x52,
+    "ctrl": 0x11, "shift": 0x10,
     "enter": 0x0D, "left": 0x25, "right": 0x27, "up": 0x26, "down": 0x28,
     "plus": 0xBB, "minus": 0xBD, "alt": 0x12, "escape": 0x1B,
 }
@@ -133,7 +134,25 @@ def _tap(vk: int, down: bool) -> None:
     user32.keybd_event(vk, 0, 0 if down else KEYEVENTF_KEYUP, 0)
 
 
+def _release_modifiers() -> None:
+    """Make sure no modifier is held down before or after we type.
+
+    An injected key-down with no matching key-up leaves Windows believing the
+    modifier is still pressed, and everything typed afterwards means something
+    else entirely. In a Chromium app -- which TradingView is -- a held ALT
+    turns every digit into a tab switch and "d" into the address bar. That is
+    the most likely explanation for a chart that walked from XAUUSD to SPX
+    with no symbol keystroke anywhere in the vocabulary.
+
+    Cheap, idempotent, and run on both sides of every action: releasing a key
+    that is already up does nothing at all.
+    """
+    for vk in (VK["alt"], VK["ctrl"], VK["shift"]):
+        _tap(vk, False)
+
+
 def _send(keys: tuple[str, ...]) -> None:
+    _release_modifiers()
     for key in keys:
         if key.startswith("alt+"):
             _tap(VK["alt"], True)
@@ -150,6 +169,7 @@ def _send(keys: tuple[str, ...]) -> None:
         # keystrokes, not as a burst; without this the digits of "15" can be
         # swallowed and the chart jumps to the one-minute.
         time.sleep(0.04)
+    _release_modifiers()
 
 
 class ChartControl:

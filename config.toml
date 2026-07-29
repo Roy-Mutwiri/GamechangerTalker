@@ -368,11 +368,23 @@ width = 1280
 max_age_seconds = 600
 
 # Driving types into the operator's live TradingView window. Focus is borrowed
-# for the keystroke and handed straight back, the action is skipped entirely if
-# a text caret is active in another application, and the vocabulary contains
-# nothing destructive -- timeframe, scroll, zoom, reset. Off by default: it is
-# still a program typing into an application somebody may be trading from.
-control_enabled = true
+# for the keystroke and handed straight back, the action is skipped if a text
+# caret is active in another application, the vocabulary contains nothing
+# destructive, and the instrument is read before and after every action.
+#
+# OFF, after two incidents on this machine. First the daily action ("d" then
+# enter) went into TradingView's symbol search and turned a live XAUUSD chart
+# into Dominion Energy. That was fixed -- every timeframe now leads with a
+# digit -- and the chart then walked to SPX anyway, with no symbol keystroke
+# left in the vocabulary and the symbol check not catching it.
+#
+# The likeliest remaining cause is a modifier left held down: in a Chromium
+# app a stuck ALT turns digits into tab switches and "d" into the address bar.
+# _release_modifiers() now runs on both sides of every action, which should
+# close it. "Should" is the operative word, and this types into the window the
+# operator trades from, so it stays off until it has been watched on a chart
+# nobody is relying on.
+control_enabled = false
 control_min_gap_seconds = 20
 move_every_seconds = 240
 
