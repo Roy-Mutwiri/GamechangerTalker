@@ -46,6 +46,41 @@ log = logging.getLogger(__name__)
 # Facts worth putting in front of a model. The full dict is ~40 keys, most of
 # them irrelevant to conversation and all of them costing input tokens on every
 # single turn.
+# What each fact is called when a person says it out loud.
+#
+# The model is handed this block every turn and will read back whatever it is
+# shown -- live, one host said "that pretty low atr_m15 of four thirty-eight",
+# and the audience heard a variable name. Telling it not to quote keys is a
+# rule it can break; not showing it a key is not.
+CONTEXT_LABELS = {
+    "price": "price now",
+    "change_day": "change since the daily open",
+    "pct_day": "percent change on the day",
+    "day_high": "today's high",
+    "day_low": "today's low",
+    "day_range": "today's range so far",
+    "session": "trading session",
+    "minutes_to_next_session": "minutes until the next session opens",
+    "next_session": "next session",
+    "market_open": "market open",
+    "atr_m15": "average range of a 15-minute bar",
+    "atr_h1": "average range of an hour",
+    "atr_ratio": "how today's volatility compares with normal (1.0 is normal)",
+    "minutes_since_move": "minutes since anything moved",
+    "range_state": "how the range is behaving",
+    "consecutive_bars": "bars in a row the same way",
+    "nearest_level": "nearest level",
+    "nearest_level_dist": "dollars to that level",
+    "pdh": "yesterday's high",
+    "pdl": "yesterday's low",
+    "asian_high": "the Asian session high",
+    "asian_low": "the Asian session low",
+    "asian_range": "how wide the Asian range was",
+    "spread": "spread, in dollars",
+    "stream_minutes": "minutes this stream has been running",
+    "quote_age_minutes": "how far behind the price feed is, in minutes",
+}
+
 CONTEXT_KEYS = (
     "price",
     "change_day",
@@ -112,8 +147,9 @@ DEFAULT_PERSONAS = (
             "You are sharp and genuinely curious, newer to gold specifically "
             "than the other host. You ask the question the audience is "
             "thinking, push back when an explanation is hand-wavy, and get "
-            "visibly interested when something actually moves. You are the one "
-            "who says 'wait, why does that matter?'"
+            "visibly interested when something actually moves. You have no "
+            "catchphrase and no single opening move: ask it flat, or as a "
+            "statement with a hole in it, or by disagreeing first."
         ),
     ),
 )
@@ -194,6 +230,13 @@ voice, never read out as words. Rare, and never at your own joke twice in a \
 row. A pair who laugh at everything are worse company than a pair who never do.
 - No sign-offs, no "great question", no summarising what was just said, no \
 stage directions beyond that one, no emoji.
+- NEVER OPEN TWO OF YOUR TURNS THE SAME WAY. Not the same word, not the same \
+shape. If your last turn began with a question word, this one does not. If it \
+began "It's...", this one starts somewhere else entirely -- with the thing \
+itself, with a flat contradiction, with the middle of the thought. Repeated \
+openings are the single most obvious tell that nobody is home, and they are \
+checked: a turn that reopens the same way is trimmed or thrown away, so it \
+costs the audience a line.
 - NEVER repeat a phrase, an idea or a sentence structure that already appears \
 in CONVERSATION SO FAR. Do not open with "Exactly" if the last turn did. Do \
 not restate the point the other host just made back at them in different \
@@ -412,6 +455,12 @@ TERMINAL_ERRORS = (
 # 529s and timeouts are worth riding out; a sustained run of them is not.
 FAILURE_LIMIT = 8
 
+# How many of a host's recent openings are remembered and refused. Five is
+# enough to break a habit without banning ordinary English: a stream runs for
+# hours and there are only so many ways to start a sentence, so a longer
+# memory would start rejecting turns for being written in the language.
+OPENER_MEMORY = 5
+
 # Scripts an English stream cannot speak. Qwen is trained heavily on Chinese
 # and drifts into it -- a few characters mid-sentence, usually after a comma.
 # Kokoro is an English voice: it either mangles them or emits noise, and either
@@ -442,6 +491,31 @@ FOREIGN_SCRIPT = re.compile(
 def foreign_characters(text: str) -> str:
     """The non-English characters in a turn, deduplicated, for the log."""
     return "".join(dict.fromkeys(FOREIGN_SCRIPT.findall(text)))
+
+
+# Emoji, dingbats and the pictographic blocks. Unlike a foreign script this is
+# stripped rather than fatal: the sentence around it is usually fine, and the
+# emoji is decoration the model added against instructions.
+#
+# It has to go before the normalizer, which turns an unknown symbol into its
+# Unicode name -- a live turn ended "...playing catch-up?Haunted faceemoji",
+# and that is what the audience heard.
+EMOJI = re.compile(
+    "["
+    "\U0001f300-\U0001faff"  # symbols, pictographs, emoticons, extended-A
+    "\U00002600-\U000027bf"  # misc symbols and dingbats
+    "\U0001f000-\U0001f0ff"  # mahjong, dominoes, cards
+    "\U0000fe00-\U0000fe0f"  # variation selectors
+    "\U00002190-\U000021ff"  # arrows
+    "\U00002b00-\U00002bff"  # misc symbols and arrows
+    "\U0000200d"  # zero-width joiner, which welds emoji together
+    "]+"
+)
+
+
+def strip_emoji(text: str) -> str:
+    """Take the pictures out and close the gap they leave."""
+    return re.sub(r"\s{2,}", " ", EMOJI.sub("", text)).strip()
 
 
 @dataclass
@@ -499,6 +573,14 @@ class HostConversation:
         self.foreign_drops = 0
         self.tic_drops = 0
         self.narration_drops = 0
+        self.opener_repeats = 0
+        self.emoji_drops = 0
+        # How each host has been starting their turns lately, so the same
+        # opening cannot run for a hundred turns unnoticed. Per speaker: they
+        # have different habits and one must not censor the other's.
+        self._openers: dict[str, deque[str]] = {
+            key: deque(maxlen=OPENER_MEMORY) for key in self.order
+        }
         # Deals kernels without repeating one for as long as it can. Seeded off
         # the same rng so a simulation replays the same conversation.
         self.topics = TopicPicker(seed=self.rng.randrange(1 << 30))
@@ -741,10 +823,32 @@ class HostConversation:
         # Kokoro as one unpronounceable token.
         raw = collapse_whitespace(raw)
 
+        cleaned = strip_emoji(raw)
+        if cleaned != raw:
+            self.emoji_drops += 1
+            raw = cleaned
+
         raw = strip_tics(raw)
         if not raw:
             self.tic_drops += 1
             return None
+
+        # Same opening as this host's recent turns? Take it off if it comes
+        # off cleanly, drop the turn if it does not. The prompt asks for
+        # variety and the model agrees and then does it anyway -- 99% of one
+        # host's turns opened the same way on a live run -- so this is
+        # enforced here rather than requested there.
+        recent = self._openers[speaker.key]
+        opening = opener_key(raw)
+        if opening in HABIT_OPENERS and opening in recent:
+            self.opener_repeats += 1
+            trimmed = strip_opener(raw)
+            if trimmed and opener_key(trimmed) not in recent:
+                log.debug("%s reopened with %r; trimmed", speaker.name, raw[:24])
+                raw = trimmed
+            else:
+                log.debug("%s reopened with %r; dropped", speaker.name, raw[:24])
+                return None
 
         foreign = foreign_characters(raw)
         if foreign:
@@ -769,6 +873,10 @@ class HostConversation:
         self._last_error = ""
         self.failures = 0
         self.turns_generated += 1
+        # Recorded from what will actually be spoken, after every screen has
+        # had its say -- recording the raw text would remember an opening the
+        # audience never hears.
+        self._openers[speaker.key].append(opener_key(safe))
         return Turn(speaker=speaker.key, name=speaker.name, text=safe, at=now)
 
     def _persona_block(self) -> str:
@@ -786,7 +894,7 @@ class HostConversation:
                 continue
             if isinstance(value, float):
                 value = round(value, 2)
-            lines.append(f"  {key}: {value}")
+            lines.append(f"  {CONTEXT_LABELS.get(key, key)}: {value}")
 
         if context:
             lines.append("")
@@ -799,6 +907,18 @@ class HostConversation:
                 lines.append(f"  {turn.name}: {turn.text}")
         else:
             lines.append("This is the very first exchange of the stream.")
+
+        used = [word for word in self._openers.get(speaker.key, ()) if word]
+        if used:
+            lines.append("")
+            lines.append(
+                "YOU HAVE ALREADY OPENED TURNS WITH: "
+                + ", ".join(f'"{word}"' for word in dict.fromkeys(used))
+            )
+            lines.append(
+                "  Start this one with a different word. Not a synonym of those "
+                "-- a different kind of sentence."
+            )
 
         seed = self._topic_for_turn()
         if seed is not None:
@@ -1010,6 +1130,59 @@ def _unwrap(text: str) -> str:
         if stripped.count('"') == 2:
             return stripped[1:-1].strip()
     return stripped
+
+
+# An opener that can be lifted off the front and leave a sentence behind.
+# "Wait, why does that matter?" survives losing its "Wait,". "It's just noise"
+# does not survive losing its "It's", so a repeat of that kind has to be
+# dropped rather than trimmed.
+_DETACHABLE = re.compile(
+    r"^(wait|so|right|okay|ok|well|yeah|yes|no|nope|hmm?|huh|look|see|listen"
+    r"|honestly|actually|basically|anyway|still|but|and|though)\b[\s,!.:;—-]+",
+    re.I,
+)
+
+
+# Openings that become habits. Discourse markers and the pronoun-plus-copula
+# start -- "Wait,", "So,", "It's...", "That's..." -- are the ones that turn
+# into a tic, and they are also the ones that carry no content, so refusing a
+# repeat costs nothing.
+#
+# Content words are deliberately absent. Starting two turns in an hour with
+# "Gold" or "London" is how people talk; banning it would be censoring English
+# rather than breaking a habit, and the failure mode of over-blocking here is
+# silence, which is worse than a repeated word.
+HABIT_OPENERS = frozenset(
+    {
+        "wait", "so", "right", "okay", "ok", "well", "yeah", "yes", "no", "nope",
+        "hmm", "hm", "huh", "look", "see", "listen", "honestly", "actually",
+        "basically", "anyway", "still", "but", "and", "though", "sure", "exactly",
+        "it", "that", "this", "there", "we", "you", "they", "i",
+    }
+)
+
+
+def opener_key(text: str) -> str:
+    """The first word, reduced to what makes two openings feel the same.
+
+    "It", "It's" and "It'll" are one habit, not three, so the key stops at the
+    apostrophe. Measured on a live run before this existed: Ada opened 167 of
+    169 turns with "Wait," and Mo 155 of 170 with some form of "It" -- which is
+    not a pair of people talking, it is two sentence templates taking turns.
+    """
+    first = text.strip().split()[:1]
+    if not first:
+        return ""
+    # Both apostrophes: models emit the curly one as often as the straight one.
+    return re.split("['’]", first[0].lower().strip(".,!?;:—-"))[0]  # noqa: RUF001
+
+
+def strip_opener(text: str) -> str:
+    """Take a detachable opener off the front and stand the sentence back up."""
+    stripped = _DETACHABLE.sub("", text.strip(), count=1)
+    if not stripped:
+        return ""
+    return stripped[0].upper() + stripped[1:]
 
 
 def _strip_speaker_prefix(text: str, name: str) -> str:

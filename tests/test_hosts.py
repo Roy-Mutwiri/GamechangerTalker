@@ -116,8 +116,8 @@ async def test_only_real_facts_reach_the_model():
     convo = build(["ok"])
     await one_turn(convo)
     block = sent(convo)[0]["user"]
-    assert "price: 3301.25" in block
-    assert "session: london" in block
+    assert "3301.25" in block
+    assert "london" in block
     # A fact that is None must not appear at all rather than appear as "None",
     # which a model will happily read out loud.
     assert "None" not in block
@@ -138,6 +138,130 @@ async def test_memory_is_bounded():
     for _ in range(20):
         await one_turn(convo)
     assert len(convo.transcript) == 6
+
+
+# ---------------------------------------------------------------------------
+# Not saying it the same way every time
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_repeated_opener_is_trimmed_off():
+    """Measured live: one host opened 167 of 169 turns with "Wait,". The words
+    after it were fine, so the opener comes off and the sentence stands up."""
+    # The pair alternate, so a host's own next turn is two along.
+    convo = build(
+        ["Wait, why does that matter?", "Fair point.", "Wait, so what breaks it?"]
+    )
+    first = await one_turn(convo)
+    await one_turn(convo)
+    again = await one_turn(convo)
+    assert first.text.startswith("Wait,")
+    assert again is not None
+    assert not again.text.lower().startswith("wait")
+    assert again.text == "So what breaks it?"
+
+
+@pytest.mark.asyncio
+async def test_a_repeat_that_will_not_come_off_is_dropped():
+    """"It's just noise" does not survive losing its "It's". Dropping costs a
+    line; speaking it costs the illusion that anyone is home."""
+    convo = build(["It's just noise.", "Fair point.", "It's the same as yesterday."])
+    await one_turn(convo)
+    await one_turn(convo)
+    assert await one_turn(convo) is None
+    assert convo.opener_repeats == 1
+
+
+@pytest.mark.asyncio
+async def test_the_habit_is_tracked_per_host_not_globally():
+    """They have different habits, and one must not censor the other's."""
+    convo = build(["It's quiet.", "It's a fair question."])
+    first = await one_turn(convo)  # Mo
+    second = await one_turn(convo)  # Ada
+    assert first is not None and second is not None
+    assert second.name == "Ada"
+
+
+@pytest.mark.asyncio
+async def test_an_opener_returns_once_it_has_fallen_out_of_memory():
+    """Five deep, not forever. There are only so many ways to start a
+    sentence, and a longer memory starts rejecting ordinary English."""
+    from narrator.script.hosts import OPENER_MEMORY
+
+    # One host's own turns, with the other's interleaved: the opener has to
+    # drop out of *their* memory, which takes OPENER_MEMORY turns of theirs.
+    mine = ["Wait, one."] + [f"Number {n}." for n in range(OPENER_MEMORY)] + ["Wait, again."]
+    # The other host's fillers must not themselves be habit openers, or they
+    # get dropped, and a dropped turn shifts who receives which reply.
+    replies: list[str] = []
+    for index, line in enumerate(mine):
+        replies += [line, f"Point {index}."]
+    convo = build(replies, memory_turns=40)
+
+    spoken = [await one_turn(convo) for _ in range(len(replies))]
+    mo_turns = [t for t in spoken if t is not None and t.name == "Mo"]
+    assert mo_turns[-1].text.startswith("Wait")
+
+
+@pytest.mark.asyncio
+async def test_the_model_is_told_what_it_has_already_used():
+    convo = build(["Wait, why?", "So what now?"])
+    await one_turn(convo)
+    await one_turn(convo)
+    await one_turn(convo)
+    assert "ALREADY OPENED TURNS WITH" in sent(convo)[-1]["user"]
+
+
+@pytest.mark.parametrize(
+    "text,key",
+    [
+        ("It's just noise.", "it"),
+        ("It'll hold.", "it"),
+        ("It is quiet.", "it"),
+        ("Wait, why?", "wait"),
+        ("  Right, so.", "right"),
+    ],
+)
+def test_one_habit_is_one_key_however_it_is_spelled(text, key):
+    from narrator.script.hosts import opener_key
+
+    assert opener_key(text) == key
+
+
+# ---------------------------------------------------------------------------
+# What must never reach the speakers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_an_emoji_is_stripped_rather_than_read_out():
+    """Live, a turn ended "...playing catch-up?Haunted faceemoji" -- the
+    normalizer turns an unknown symbol into its Unicode name, and the audience
+    hears it. The sentence around it was fine, so strip and keep."""
+    convo = build(["Markets go quiet until they scream \U0001f631"])
+    turn = await one_turn(convo)
+    assert turn is not None
+    assert turn.text == "Markets go quiet until they scream"
+    assert convo.emoji_drops == 1
+
+
+@pytest.mark.asyncio
+async def test_facts_are_labelled_in_words_not_variable_names():
+    """Live, a host said "that pretty low atr_m15 of four thirty-eight". The
+    model reads back whatever it is shown, so it is not shown a key."""
+    convo = build(["ok"])
+    await one_turn(convo)
+    block = sent(convo)[0]["user"]
+    assert "atr_m15" not in block
+    assert "average range of a 15-minute bar" in block
+
+
+def test_every_fact_offered_to_the_hosts_has_a_spoken_label():
+    from narrator.script.hosts import CONTEXT_KEYS, CONTEXT_LABELS
+
+    missing = [key for key in CONTEXT_KEYS if key not in CONTEXT_LABELS]
+    assert not missing, f"facts with no spoken label: {missing}"
 
 
 # ---------------------------------------------------------------------------
