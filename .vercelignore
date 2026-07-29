@@ -1,0 +1,27 @@
+# Vercel does not read .gitignore, and this directory holds ~7.6GB that has no
+# business being uploaded to build one HTML file. Without this the deploy tries
+# to ship the virtualenv and the phrase cache and times out.
+#
+# The build needs exactly two things: narrator/ui/web/index.html and
+# scripts/build-web.mjs. Everything else here is the desktop application, which
+# does not and cannot run on Vercel.
+
+.venv/
+cache/
+logs/
+avatars/
+public/
+node_modules/
+
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.git/
+.github/
+
+tests/
+tools/
+.env*

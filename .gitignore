@@ -22,3 +22,6 @@ avatars/
 # Keep the committed fixture; ignore recordings the operator adds
 tests/fixtures/*.csv
 !tests/fixtures/xauusd_m1.csv
+
+.vercel
+.env*

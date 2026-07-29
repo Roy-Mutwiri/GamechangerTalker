@@ -3,6 +3,7 @@
   "buildCommand": "node scripts/build-web.mjs",
   "outputDirectory": "public",
   "framework": null,
+  "installCommand": "echo 'no dependencies: this build copies one HTML file'",
   "rewrites": [
     { "source": "/stage", "destination": "/index.html?view=stage" },
     { "source": "/app", "destination": "/index.html" }

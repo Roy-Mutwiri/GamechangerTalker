@@ -1106,7 +1106,12 @@
   // Stage view: characters only. Also switches the avatar panel to the Warudo
   // render, since a shared stage link showing the fallback SVG face is not
   // what anyone opened it for.
-  const stageOnly = (params.get("view") || "") === "stage";
+  // The path counts as well as the query. A Vercel rewrite sends /stage to
+  // index.html?view=stage on the server, and the browser never sees that
+  // query -- location.search stays empty, so checking only the param would
+  // serve the full dashboard on the URL meant to be characters-only.
+  const path = location.pathname.replace(/\/+$/, "");
+  const stageOnly = (params.get("view") || "") === "stage" || path.endsWith("/stage");
   if (stageOnly) document.body.classList.add("stageonly");
 
   let ws = null, retry = 800;
