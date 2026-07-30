@@ -1,33 +1,155 @@
 # ---------------------------------------------------------------------------
-# Trade Fix Narrator - dependencies
+# Trade Fix Narrator - everything this project needs to run
 # ---------------------------------------------------------------------------
 #
-# TORCH MUST BE INSTALLED FIRST, FROM THE CUDA 12.8 INDEX.
+# This file is the whole install list, not just the pip half. Around 10GB of
+# what the project uses cannot live in a git repository -- model weights, a
+# virtualenv, character models, a broker terminal -- so the parts pip cannot
+# fetch are written out at the bottom rather than left for someone to discover
+# when the app refuses to start.
+#
+# Order matters for exactly one thing:
+#
+#   1. torch, from the CUDA 12.8 index          (see TORCH below)
+#   2. pip install -r requirements.txt
+#   3. the external software at the bottom      (NOT INSTALLABLE BY PIP)
+#
+# ---------------------------------------------------------------------------
+# TORCH -- INSTALL FIRST, AND NOT FROM PLAIN PyPI
+# ---------------------------------------------------------------------------
 # The RTX 5080 is Blackwell (sm_120). Default PyPI torch wheels are built
-# without sm_120 kernels and will fail at runtime with:
+# without sm_120 kernels: they import cleanly, report cuda.is_available() as
+# True, and then die on the first kernel launch with
 #     "no kernel image is available for execution on the device"
+# -- inside Kokoro, an hour into a stream. preflight.py launches a real kernel
+# at boot so this fails at the door instead.
 #
 #   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
 #
-# Then:
-#   pip install -r requirements.txt
-#
-# See README.md and narrator/preflight.py.
+# torch and torchaudio are deliberately NOT listed below: a bare
+# `pip install -r requirements.txt` would pull the wrong build.
 # ---------------------------------------------------------------------------
 
-# --- Milestone 1 (headless dry run) ----------------------------------------
-pydantic>=2.6            # config validation
-rich>=13.7               # console UI / dry-run transcript
-MetaTrader5>=5.0.45      # live market data (Windows only, attaches to terminal)
 
-# --- Milestone 3+ (speech) --------------------------------------------------
-kokoro>=0.9.4            # Kokoro-82M TTS (phoneme based)
+# --- core -------------------------------------------------------------------
+pydantic>=2.6            # config validation; every section of config.toml
+rich>=13.7               # terminal dashboard and the plain transcript
+numpy>=1.26              # audio buffers, viseme maths, breath/chuckle synthesis
+
+# --- market data ------------------------------------------------------------
+# Windows only. Attaches to a running MetaTrader 5 terminal -- it does not
+# launch one and does not log in. See "MetaTrader 5" at the bottom.
+MetaTrader5>=5.0.45
+
+# --- speech -----------------------------------------------------------------
+kokoro>=0.9.4            # Kokoro-82M TTS. Pulls spacy + misaki for phonemes,
+                         # and downloads ~330MB of weights on first run.
 soundfile>=0.12          # wav read/write for the phrase cache
-sounddevice>=0.4.6       # audio output to the Windows default device
-numpy>=1.26
+sounddevice>=0.4.6       # audio out to the Windows default device
 
-# --- Milestone 5 (avatar) ---------------------------------------------------
-websockets>=12.0         # Warudo bridge
+# --- avatar and browser UI --------------------------------------------------
+websockets>=12.0         # Warudo bridge, and the browser UI's own socket
+Pillow>=10.0             # JPEG encode for the Warudo/TradingView window capture
+mss>=9.0                 # screen-grab fallback when PrintWindow returns black
 
-# --- Dev --------------------------------------------------------------------
+# --- the two hosts, and their eyes -----------------------------------------
+httpx>=0.27              # Ollama (hosts + chart vision) over HTTP
+anthropic>=0.40          # optional hosted backend for hosts and chart vision.
+                         # Unused unless config sets backend = "anthropic";
+                         # the import is lazy, so a missing key costs nothing.
+
+# --- dev --------------------------------------------------------------------
 pytest>=8.0
+pytest-asyncio>=0.23     # the host-conversation tests are async; without this
+                         # they are silently skipped rather than failed
+ruff>=0.6                # lint + format (pre-commit runs it)
+mypy>=1.11
+
+
+# ===========================================================================
+# NOT INSTALLABLE BY PIP
+# ===========================================================================
+# None of the following is in the repository. Sizes are what they actually
+# occupy on disk after install.
+#
+# ---------------------------------------------------------------------------
+# REQUIRED -- the app will not start without these
+# ---------------------------------------------------------------------------
+#
+# MetaTrader 5 terminal                                              ~700 MB
+#     https://www.metaquotes.net/en/metatrader5  (signed by MetaQuotes Ltd)
+#     Must be RUNNING and LOGGED IN. A free demo account is enough:
+#     File -> Open an Account -> MetaQuotes-Demo. The narrator refuses to
+#     start on prices that are not real time, so without this it exits at
+#     preflight by design -- see market.max_quote_age_seconds in config.toml.
+#     Verify with: python -m tools.feed_check
+#
+# Kokoro-82M weights                                                 ~330 MB
+#     Downloaded automatically on first run to ~/.cache/huggingface.
+#     Needs internet once; offline afterwards.
+#
+# spaCy en_core_web_sm                                                ~12 MB
+#     Pulled in by kokoro/misaki for phonemisation. If phonemes fail with a
+#     missing-model error:  python -m spacy download en_core_web_sm
+#
+# ---------------------------------------------------------------------------
+# REQUIRED FOR THE TWO-HOST CONVERSATION  ([hosts] enabled = true)
+# ---------------------------------------------------------------------------
+#
+# Ollama                                                             ~600 MB
+#     https://ollama.com/download
+#
+# ollama pull qwen2.5:7b-instruct-q4_K_M                             ~4.7 GB
+#     Writes the hosts' dialogue. Measured at ~7 tokens/sec on this machine,
+#     which is why hosts.timeout_seconds is 30 and not 12.
+#
+# ollama pull qwen2.5vl:7b                                           ~6.0 GB
+#     Vision model for the chart eyes ([chart] backend = "ollama").
+#     Only needed with chart.enabled = true.
+#     Do NOT substitute qwen2.5vl:32b (21 GB): it does not fit alongside
+#     Warudo and Kokoro on a 16 GB GPU and fails to load.
+#
+# ---------------------------------------------------------------------------
+# REQUIRED FOR THE AVATAR  ([warudo] enabled = true)
+# ---------------------------------------------------------------------------
+#
+# Warudo                                                              ~8 GB
+#     Steam app. WebSocket server on 19190 -- see WARUDO_SETUP.md for the
+#     blueprint, node by node.
+#
+# VRM character models                                                ~68 MB
+#     Not in the repo: third-party binaries, and the roster is per-operator.
+#     Drop .vrm/.warudo files in
+#         <Warudo>/Warudo_Data/StreamingAssets/Characters/
+#     and list them under [[warudo.avatars]] in config.toml. Any VRM works;
+#     tools/avatar_check.py reports whether one has usable mouth blendshapes.
+#
+# ---------------------------------------------------------------------------
+# OPTIONAL -- the chart eyes, and sharing the browser UI
+# ---------------------------------------------------------------------------
+#
+# TradingView desktop                                                ~400 MB
+#     https://www.tradingview.com/desktop/  ([chart] enabled = true)
+#     Found by process name, not window title -- the title carries the live
+#     price and changes on every tick.
+#
+# cloudflared                                                         ~50 MB
+#     winget install --id Cloudflare.cloudflared
+#     Tunnels the browser UI's websocket (port 8771) out to the hosted page.
+#
+# Node.js 20+ and the Vercel CLI                                     ~150 MB
+#     winget install --id OpenJS.NodeJS.LTS  &&  npm install -g vercel
+#     Only to deploy the hosted copy of the browser UI. The UI itself is one
+#     self-contained HTML file and needs no build to run locally.
+#     See DEPLOY.md.
+#
+# ---------------------------------------------------------------------------
+# GENERATED AT RUNTIME -- gitignored, nothing to install
+# ---------------------------------------------------------------------------
+#
+#   .venv/     ~4.9 GB   virtualenv (torch is most of it)
+#   cache/     ~4.7 GB   synthesised phrase cache; rebuilds itself, and every
+#                        hit is audio that did not have to be generated again
+#   logs/                transcript, sqlite speech log, run output
+#   public/              built by scripts/build-web.mjs at deploy time
+# ===========================================================================
