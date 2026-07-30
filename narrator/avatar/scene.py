@@ -20,21 +20,19 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from narrator.avatar import install
 from narrator.config import AvatarEntry
 
 log = logging.getLogger(__name__)
 
 
 def scene_path() -> Path | None:
-    """Warudo's saved scene, if this machine has one."""
-    for base in (
-        Path(r"C:\Program Files (x86)\Steam\steamapps\common\Warudo"),
-        Path(r"C:\Program Files\Steam\steamapps\common\Warudo"),
-    ):
-        scene = base / "Warudo_Data" / "StreamingAssets" / "Scenes" / "DefaultScene.json"
-        if scene.is_file():
-            return scene
-    return None
+    """Warudo's saved scene, if this machine has one.
+
+    Discovery lives in `install.py` so the picker, the switch and
+    `tools/warudo_setup.py` cannot disagree about where Warudo is.
+    """
+    return install.scene_path()
 
 
 def apply(entry: AvatarEntry, focus_height: float, path: Path | None = None) -> bool:

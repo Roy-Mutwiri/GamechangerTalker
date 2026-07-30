@@ -17,6 +17,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from narrator.avatar import install
 from narrator.avatar.vrm import VrmError, head_height, inspect
 from narrator.config import AvatarEntry, Config
 
@@ -28,15 +29,12 @@ FALLBACK_FOCUS = 1.35
 
 
 def characters_folder() -> Path | None:
-    """Warudo's Characters folder, if this machine has one."""
-    for base in (
-        Path(r"C:\Program Files (x86)\Steam\steamapps\common\Warudo"),
-        Path(r"C:\Program Files\Steam\steamapps\common\Warudo"),
-    ):
-        folder = base / "Warudo_Data" / "StreamingAssets" / "Characters"
-        if folder.is_dir():
-            return folder
-    return None
+    """Warudo's Characters folder, if this machine has one.
+
+    Discovery lives in `install.py`; see there for why the default Steam path
+    alone is not enough.
+    """
+    return install.characters_folder()
 
 
 def build(cfg: Config) -> list[dict[str, Any]]:

@@ -13,6 +13,7 @@ import json
 
 import pytest
 
+from narrator.avatar import install
 from tools import warudo_export, warudo_setup
 
 VISEME_ACTIONS = {"viseme_aa", "viseme_ih", "viseme_ou", "viseme_ee", "viseme_oh"}
@@ -172,23 +173,73 @@ def test_graft_keeps_the_hosts_own_blueprints(host_scene, template):
 
 # ---------------------------------------------------------------------------
 # Finding the install
+#
+# One search, shared by the setup tool, the avatar picker and the avatar
+# switch. Anything that only knows the default Steam path works on the machine
+# it was written on and quietly does nothing on a machine with games on D:.
 # ---------------------------------------------------------------------------
 
 
-def test_find_warudo_accepts_the_data_folder(tmp_path, monkeypatch):
-    """Handed Warudo_Data instead of the folder above it, still find the root."""
+@pytest.fixture
+def nowhere(monkeypatch):
+    """No Warudo anywhere: no env var, no default install, no Steam library."""
     monkeypatch.delenv("WARUDO_ROOT", raising=False)
-    root = tmp_path / "Warudo"
-    (root / "Warudo_Data" / "StreamingAssets").mkdir(parents=True)
+    monkeypatch.setattr(install, "DEFAULT_ROOTS", ())
+    monkeypatch.setattr(install, "_steam_libraries", list)
+    return
+
+
+def fake_install(base) -> object:
+    (base / "Warudo_Data" / "StreamingAssets" / "Characters").mkdir(parents=True)
+    (base / "Warudo_Data" / "StreamingAssets" / "Scenes").mkdir(parents=True)
+    return base
+
+
+def test_find_warudo_accepts_the_data_folder(tmp_path, nowhere):
+    """Handed Warudo_Data instead of the folder above it, still find the root."""
+    root = fake_install(tmp_path / "Warudo")
     assert warudo_setup.find_warudo(root) == root
     assert warudo_setup.find_warudo(root / "Warudo_Data") == root
 
 
-def test_find_warudo_returns_none_when_absent(tmp_path, monkeypatch):
-    monkeypatch.delenv("WARUDO_ROOT", raising=False)
-    monkeypatch.setattr(warudo_setup, "DEFAULT_ROOTS", ())
-    monkeypatch.setattr(warudo_setup, "STEAM_CONFIGS", ())
+def test_find_warudo_returns_none_when_absent(tmp_path, nowhere):
     assert warudo_setup.find_warudo(tmp_path / "nowhere") is None
+    assert install.characters_folder() is None
+    assert install.scene_path() is None
+
+
+def test_env_var_beats_the_default_path(tmp_path, nowhere, monkeypatch):
+    """WARUDO_ROOT is the escape hatch for a non-Steam or relocated install,
+    so it has to win against a default install that also exists."""
+    default = fake_install(tmp_path / "Default")
+    chosen = fake_install(tmp_path / "Elsewhere")
+    monkeypatch.setattr(install, "DEFAULT_ROOTS", (default,))
+    monkeypatch.setenv("WARUDO_ROOT", str(chosen))
+    assert install.root() == chosen
+    assert (
+        install.characters_folder()
+        == chosen / "Warudo_Data" / "StreamingAssets" / "Characters"
+    )
+
+
+def test_a_second_steam_library_is_searched(tmp_path, nowhere, monkeypatch):
+    """Steam offers a second library on the first big install, so games on D:
+    is the normal case. Only knowing Program Files misses it entirely."""
+    library = tmp_path / "SteamLibrary"
+    root = fake_install(library / "steamapps" / "common" / "Warudo")
+    monkeypatch.setattr(install, "_steam_libraries", lambda: [root])
+    assert install.root() == root
+
+
+def test_scene_path_wants_a_file_not_a_folder(tmp_path, nowhere, monkeypatch):
+    """An install with no saved scene yet reports None rather than a path that
+    is not there -- that is what tells warudo_setup to install ours whole."""
+    root = fake_install(tmp_path / "Warudo")
+    monkeypatch.setenv("WARUDO_ROOT", str(root))
+    assert install.scene_path() is None
+    scene = root / "Warudo_Data/StreamingAssets/Scenes" / install.SCENE_FILE
+    scene.write_text("{}", encoding="utf-8")
+    assert install.scene_path() == scene
 
 
 def test_install_avatars_copies_the_roster(tmp_path):

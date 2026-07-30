@@ -14,6 +14,23 @@ appear only if the operator typed them into the override channel or wrote them
 into a template himself. There is a test that enforces this on the shipped
 library (`tests/test_library.py::test_no_shipped_template_gives_trade_instructions`).
 
+### Where everything is
+
+| | |
+|---|---|
+| `narrator/` | the application — see `ARCHITECTURE.md` for a table of every module |
+| `templates/` | **the script.** JSON, hot-reloaded, and where most of the tuning happens |
+| `config.toml` | every tunable, with the reasoning next to each default |
+| `tools/` | 18 diagnostics and rigs — the index is further down |
+| `avatars/` | 16 CC0 VRM models, committed because `config.toml` names them |
+| `warudo/` | **Warudo's own scene file.** Half the avatar setup lives inside the Warudo install rather than in a repo, so a copy is kept here — without it a clone gets a narrator talking to nothing. See `WARUDO_SETUP.md` §0 |
+| `tests/` | the suite, plus one deterministic M1 fixture |
+
+The four documents: this one for *how to run and tune it*, `ARCHITECTURE.md`
+for *how it is built*, `WARUDO_SETUP.md` for *the avatar, end to end*, and
+`DEPLOY.md` for *the hosted browser UI*. `requirements.txt` is the whole
+install list — including the ~10 GB pip cannot fetch — not just the pip half.
+
 ---
 
 ## Status
@@ -153,17 +170,37 @@ Note the two disagree on density by about 3×: real Kokoro utterances run
 longer than the word-count estimate the simulation uses. Judge *which lines
 fire* from the simulation and *pacing* from a real run.
 
-Other tools:
+### Every tool
 
-```powershell
-python -m tools.ui_demo                  # dashboard layout, no feed needed
-python -m tools.speech_check             # synthesis + phonemes + viseme scope
-python -m tools.avatar_check model.vrm   # will this avatar lip sync?
-python -m tools.bench                    # hot-path microbenchmarks
-python -m tools.make_fixture --days 20   # regenerate replay data
-python -m tools.warudo_setup --check     # is the Warudo half installed?
-python -m tools.warudo_export --check    # has the live scene drifted from the committed one?
-```
+All are `python -m tools.<name>`, and all take `--help`. Most exist because
+something was hard to see: a mouth that will not move and a feed that is ten
+minutes stale both look exactly like working software from the outside.
+
+| Setup and the avatar | |
+|---|---|
+| `warudo_setup --check` | is the Warudo half installed on this machine? |
+| `warudo_setup` | install it — scene, blueprint and models. See §4 below |
+| `warudo_export` | write the live Warudo scene back into `warudo/`, so the next machine gets it |
+| `avatar_check [model.vrm]` | will this avatar lip sync? Reads the VRM header — no Unity, no Warudo. Catches the vowel clip that binds to nothing |
+| `frame_avatar --shot bust` | point the camera at the avatar's face, sized off its own head bone |
+| `liven_avatar` | breathing, sway and eye contact on, so a still avatar stops looking dead |
+| `lipsync_check` | send each viseme at full weight, capture the render, measure the change. Answers "is the lip sync working" with a number instead of an opinion; `--character 2` for the second host |
+| `motion_check --seconds 12` | is the avatar moving at all? Mean pixel change over time, with the face box and the blink peak broken out |
+| `loopback_check --tone` | can Warudo *hear* the narrator? Records each loopback device and reports the level — and the host API, which matters just as much |
+
+| Speech and script | |
+|---|---|
+| `speech_check` | Kokoro → audio → phonemes → visemes, with a mouth-opening scope |
+| `delivery_demo` | one line flat and then delivered, side by side, to a wav |
+| `review` | read a real stream back: filler share, repeats, clustering, what never fired |
+| `bench` | hot-path microbenchmarks |
+| `ui_demo` | one frame of the dashboard, with sample data |
+
+| Market | |
+|---|---|
+| `feed_check` | prove the price is real, current, and gold |
+| `chart_check` | show what the hosts see when they look at the chart |
+| `make_fixture --days 20` | regenerate the deterministic replay fixture |
 
 ---
 
@@ -579,13 +616,17 @@ ruff check . && ruff format --check .
 mypy
 ```
 
-All four gates are clean and enforced in CI (`.github/workflows/ci.yml`), which
-also runs a deterministic 12-hour simulation on every push — that catches
+All four gates are enforced in CI (`.github/workflows/ci.yml`) on Windows, plus
+a deterministic 12-hour simulation on every push — that last one catches
 anything which stops the library speaking, without needing a market, a GPU or
-an avatar.
+an avatar. Run them locally before pushing; `ruff format` in particular will
+happily rewrite a file you have not touched, and finding that out from a red
+CI run is a wasted round trip.
 
-**330 tests, 80% coverage.** The uncovered remainder is hardware: a live MT5
-terminal, a real audio device, a running Warudo.
+**723 tests, 79% coverage** (the suite fails below 75%). The uncovered
+remainder is hardware: a live MT5 terminal, a real audio device, a running
+Warudo — `ui/capture.py` at 52% and `ui/webui.py` at 55% are the floor, and
+both are things you can only really test by looking at them.
 
 What is covered, and why those things and not others:
 
@@ -598,6 +639,7 @@ What is covered, and why those things and not others:
 | template library | every validation error names file + id + the bad reference; hot reload keeps cooldowns; a broken edit keeps the old library |
 | speech | phoneme timing (both paths), viseme mapping, smoothing, the phrase cache round trip |
 | avatar | VRM 0.x and 1.0 parsing, lip-sync verdicts, emote preset mapping |
+| Warudo scene | that the committed scene still describes a working bridge, that grafting it onto a scene with different asset ids leaves nothing pointing at this machine's, and that finding the install works from a second Steam library |
 | adapters | gold symbol auto-detection across seven broker naming schemes |
 | integration | the whole app end to end, including that no digit ever reaches the transcript unspoken |
 

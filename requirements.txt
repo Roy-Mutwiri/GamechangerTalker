@@ -114,15 +114,33 @@ mypy>=1.11
 # ---------------------------------------------------------------------------
 #
 # Warudo                                                              ~8 GB
-#     Steam app. WebSocket server on 19190 -- see WARUDO_SETUP.md for the
-#     blueprint, node by node.
+#     Steam app 2079120. Verified against 0.15.0. WebSocket server on 19190;
+#     that port is a Warudo setting, not part of the scene, so read it on the
+#     new machine rather than assuming -- WARUDO_SETUP.md section 1.
 #
-# VRM character models                                                ~68 MB
-#     Not in the repo: third-party binaries, and the roster is per-operator.
-#     Drop .vrm/.warudo files in
-#         <Warudo>/Warudo_Data/StreamingAssets/Characters/
-#     and list them under [[warudo.avatars]] in config.toml. Any VRM works;
-#     tools/avatar_check.py reports whether one has usable mouth blendshapes.
+#     Launch it once so it creates its folders, CLOSE IT, then:
+#         python -m tools.warudo_setup --check    # what is missing
+#         python -m tools.warudo_setup            # install it
+#
+#     That is the whole Warudo setup. The scene -- Character 1, the camera,
+#     and the `narrator` blueprint that turns a websocket message into a
+#     blendshape -- is committed as warudo/DefaultScene.json, and the models
+#     are committed under avatars/; the tool copies both into the Warudo
+#     install, which is the only place Warudo looks. Warudo must be closed
+#     while it runs: it rewrites the scene on exit.
+#
+#     Installed somewhere other than the default Steam library? The search
+#     covers every library in libraryfolders.vdf; past that, set WARUDO_ROOT
+#     or pass --warudo-root.
+#
+# VRM character models                              in the repo, ~68 MB
+#     avatars/ holds sixteen, all CC0. Two of them name vowel clips that bind
+#     to nothing and cannot be lip-synced by anything -- run
+#     `python -m tools.avatar_check` before trusting one. The roster the
+#     picker offers is [[warudo.avatars]] in config.toml, which is
+#     deliberately shorter than the folder: which models are licensed for a
+#     commercial stream is the operator's call.
+#     Shipilka.warudo and the four environments ship with Warudo itself.
 #
 # ---------------------------------------------------------------------------
 # OPTIONAL -- the chart eyes, and sharing the browser UI
@@ -152,4 +170,17 @@ mypy>=1.11
 #                        hit is audio that did not have to be generated again
 #   logs/                transcript, sqlite speech log, run output
 #   public/              built by scripts/build-web.mjs at deploy time
+#
+# ---------------------------------------------------------------------------
+# VERIFIED ON
+# ---------------------------------------------------------------------------
+# Not requirements -- what the numbers in this repo were measured against, so
+# a machine that differs knows which of them to re-measure rather than trust.
+#
+#   Windows 11         26100
+#   Python             3.11.9        (3.12 untested; kokoro pins matter here)
+#   torch              2.11.0+cu128
+#   GPU                RTX 5080 Laptop, sm_120, 16 GB
+#   Warudo             0.15.0        (node typeIds in WARUDO_SETUP.md are its)
+#   MetaTrader 5       terminal running and logged in; symbol auto-detected
 # ===========================================================================

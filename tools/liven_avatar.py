@@ -26,10 +26,16 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-from pathlib import Path
 
-WARUDO = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Warudo\Warudo_Data")
-SCENE = WARUDO / "StreamingAssets" / "Scenes" / "DefaultScene.json"
+from narrator.avatar import install
+
+# Wherever Steam put it, not just the default library. Falling back to the
+# default keeps the "scene not found" message below naming a real path.
+WARUDO = (
+    install.streaming_assets()
+    or install.DEFAULT_ROOTS[0] / "Warudo_Data" / "StreamingAssets"
+)
+SCENE = WARUDO / "Scenes" / "DefaultScene.json"
 CHARACTER_TYPE = "726ab674-a550-474e-8b92-66526a5ad55e"
 CAMERA_TYPE = "6a05ecf3-1501-4cab-b9d7-84131b881a29"
 

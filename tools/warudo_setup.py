@@ -41,35 +41,24 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import os
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
+from narrator.avatar import install
+
 REPO = Path(__file__).resolve().parent.parent
 TEMPLATE = REPO / "warudo" / "DefaultScene.json"
 AVATARS = REPO / "avatars"
 
 GRAPH_NAME = "narrator"
-SCENE_FILE = "DefaultScene.json"
+SCENE_FILE = install.SCENE_FILE
 
 # Assets the blueprint's nodes point at. Matched by name, because the ids
 # differ on every install -- Warudo mints a fresh guid per asset.
 LINKED_ASSETS = ("Character 1", "Character 2", "Camera 1")
-
-# Where Steam puts Warudo when nobody has moved it.
-DEFAULT_ROOTS = (
-    Path(r"C:\Program Files (x86)\Steam\steamapps\common\Warudo"),
-    Path(r"C:\Program Files\Steam\steamapps\common\Warudo"),
-)
-STEAM_CONFIGS = (
-    Path(r"C:\Program Files (x86)\Steam\steamapps\libraryfolders.vdf"),
-    Path(r"C:\Program Files\Steam\steamapps\libraryfolders.vdf"),
-)
-
 
 # ---------------------------------------------------------------------------
 # Finding Warudo
@@ -77,39 +66,14 @@ STEAM_CONFIGS = (
 
 
 def find_warudo(explicit: Path | None = None) -> Path | None:
-    """The Warudo install directory -- the one holding Warudo_Data."""
-    candidates: list[Path] = []
-    if explicit:
-        candidates.append(explicit)
-    env = os.environ.get("WARUDO_ROOT")
-    if env:
-        candidates.append(Path(env))
-    candidates.extend(DEFAULT_ROOTS)
-    candidates.extend(_steam_libraries())
+    """The Warudo install directory -- the one holding Warudo_Data.
 
-    for base in candidates:
-        # Tolerate being handed Warudo_Data, or the exe's folder, either way.
-        for root in (base, base.parent):
-            if (root / "Warudo_Data" / "StreamingAssets").is_dir():
-                return root
-    return None
-
-
-def _steam_libraries() -> list[Path]:
-    """Warudo under any Steam library folder, not just the default one."""
-    found: list[Path] = []
-    for config in STEAM_CONFIGS:
-        if not config.is_file():
-            continue
-        try:
-            text = config.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        for raw in re.findall(r'"path"\s+"([^"]+)"', text):
-            found.append(
-                Path(raw.replace("\\\\", "\\")) / "steamapps" / "common" / "Warudo"
-            )
-    return found
+    The search itself is `narrator/avatar/install.py`, shared with the avatar
+    picker and the avatar switch so all three cannot disagree about where
+    Warudo is. Installing into one folder while the running narrator reads
+    another is a failure that looks exactly like nothing happening.
+    """
+    return install.root(explicit)
 
 
 def warudo_running() -> bool:

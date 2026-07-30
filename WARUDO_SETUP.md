@@ -91,6 +91,45 @@ A rollback copy is written before anything is overwritten
 python -m tools.warudo_setup --remove    # takes the blueprint back out
 ```
 
+### If Warudo is not in the default Steam library
+
+Steam offers a second library the first time a big game will not fit, so games
+on `D:` is the ordinary case rather than the exotic one. The search covers
+every library listed in `libraryfolders.vdf`, and past that:
+
+```powershell
+$env:WARUDO_ROOT = "D:\SteamLibrary\steamapps\common\Warudo"
+python -m tools.warudo_setup
+```
+
+`WARUDO_ROOT` accepts the install folder or `Warudo_Data` inside it. It is
+read by the **narrator itself** as well as by the tools —
+`narrator/avatar/install.py` is the one search all of them use, deliberately,
+because a setup tool that installs into `D:` while the running narrator reads
+`C:` fails in the way that is hardest to see: everything reports success and
+the avatar picker is still empty. Set it in the shell you launch the narrator
+from, not just the one you install from.
+
+### Checking it moved
+
+Four tools, in the order worth running them. Each answers with a number rather
+than an impression, which matters here because "the mouth is not moving" has
+about six different causes that look identical:
+
+```powershell
+python -m tools.avatar_check              # can this model's mouth be driven at all?
+python -m tools.lipsync_check             # is the blueprint really wired? --character 2 for the second host
+python -m tools.motion_check --seconds 12 # is anything moving, including breathing and blinks?
+python -m tools.frame_avatar --shot bust  # and point the camera at it
+```
+
+`avatar_check` reads the VRM header directly — no Unity, no Warudo, no import
+— so it is the one to run *before* building anything. `lipsync_check` sends
+each viseme at full weight and measures how much the render changed against a
+closed mouth; identical frames mean the blueprint is not driving anything.
+`liven_avatar` turns on breathing, sway and eye contact, which is the
+difference between an avatar and a mannequin.
+
 ### Keeping the packaged scene current
 
 The committed scene is a snapshot. Change the blueprint, move the camera, add a
