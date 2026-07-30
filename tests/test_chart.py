@@ -35,6 +35,12 @@ def test_the_prompt_forbids_numbers_in_several_places():
         "The indicator printed a buy signal near the low.",
         "Sell signals cluster at the highs.",
         "A BUY label sits on the last swing.",
+        # Produced verbatim by the local model. "selling" is matched by neither
+        # a naive \bsell\b swap nor the advice guard, so this framing reached
+        # the hosts intact -- a recommendation wearing a description's clothes.
+        "Short-side markers on the bars indicating selling opportunities.",
+        "Buying opportunities appear near the lows.",
+        "The indicator shows buying and selling pressure at the edges.",
     ],
 )
 def test_trade_words_never_reach_the_hosts_from_the_chart(described):
@@ -47,6 +53,22 @@ def test_trade_words_never_reach_the_hosts_from_the_chart(described):
 
     cleaned = scrub(described)
     assert is_clean(cleaned), f"chart description would trip the guard: {cleaned!r}"
+
+
+def test_nothing_on_the_chart_is_called_an_opportunity():
+    """Describing a marker as an opportunity is advice, however it is framed."""
+    from narrator.market.chart import scrub
+
+    for described in (
+        "Short-side markers indicating selling opportunities.",
+        "Clear buying opportunities at the range low.",
+        "Several trading opportunities are visible.",
+    ):
+        assert "opportunit" not in scrub(described).lower()
+
+
+def test_the_prompt_forbids_opportunity_framing():
+    assert "opportunity" in SYSTEM.lower()
 
 
 def test_scrubbing_keeps_the_meaning():

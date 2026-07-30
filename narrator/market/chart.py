@@ -64,15 +64,31 @@ indicator painting markers.
 - What is different about the right-hand edge -- the last few bars -- compared \
 with the rest of the screen. That is the part that is happening now.
 
+ONLY WHAT IS ACTUALLY THERE
+Describe what you can clearly see and nothing else. If you are not sure whether \
+something is on this chart -- a trendline, a box, a level, an indicator -- then \
+do not mention it. A shorter description that is true beats a fuller one that \
+is invented.
+
+Two hosts are about to say this out loud on a live stream as though they are \
+looking at the chart themselves. If you describe a trendline that is not there, \
+they will discuss a trendline that is not there, in front of an audience who \
+can see the screen. Leaving something out costs nothing; putting something in \
+that is not there is the only real failure here.
+
+It is completely fine to say the chart is plain: bars and nothing else. Most \
+charts are.
+
 WHAT YOU MUST NOT DO
 - NEVER state a number. No prices, no levels, no percentages, no dates, no \
 times, not even ones printed clearly on the axis. The stream gets its numbers \
 from a live broker feed and yours would contradict it -- this chart is a \
 different broker and reads several dollars apart. Say "the top of the range", \
 never "4,018".
-- NEVER repeat a buy or sell signal as a recommendation. If an indicator has \
-marked the chart, say that it has been marking turns and whether it looks early \
-or late. Never "it is signalling a buy".
+- NEVER repeat a buy or sell signal as a recommendation, and never describe \
+anything on the chart as an opportunity. If an indicator has marked the chart, \
+say that it has been marking turns and whether it looks early or late. Never \
+"it is signalling a buy", never "these are selling opportunities".
 - NEVER guess why anything happened. You can see a chart; you cannot see news.
 - If the window is not a chart -- a settings dialog, a blank screen, a browser \
 tab -- say exactly that in one sentence and stop.
@@ -92,9 +108,20 @@ tab -- say exactly that in one sentence and stop.
 # So the marker keeps its meaning and loses the word: nobody is told what to
 # do, and nothing downstream trips.
 _SCRUB = (
-    (re.compile(r"\bbuy(?:ing)?\s+(?:and\s+sell\s+)?signals?\b", re.I), "long-side markers"),
+    # Opportunity framing first: "selling opportunities" is a recommendation
+    # wearing a description's clothes, and it survives both a naive \bsell\b
+    # swap and the advice guard, which matches "sell" but not "selling". A live
+    # look produced exactly that -- "short-side markers indicating selling
+    # opportunities" -- which would have reached the hosts as advice.
+    (
+        re.compile(r"\b(?:buy|buying|sell|selling|trading)\s+opportunit(?:y|ies)\b", re.I),
+        "markers",
+    ),
+    (re.compile(r"\bbuy(?:ing)?\s+(?:and\s+sell(?:ing)?\s+)?signals?\b", re.I), "long-side markers"),
     (re.compile(r"\bsell(?:ing)?\s+signals?\b", re.I), "short-side markers"),
-    (re.compile(r"\bbuy\s+and\s+sell\b", re.I), "long-side and short-side"),
+    (re.compile(r"\bbuy(?:ing)?\s+and\s+sell(?:ing)?\b", re.I), "long-side and short-side"),
+    (re.compile(r"\bbuying\b", re.I), "long-side"),
+    (re.compile(r"\bselling\b", re.I), "short-side"),
     (re.compile(r"\bbuy\b", re.I), "long-side"),
     (re.compile(r"\bsell\b", re.I), "short-side"),
 )
