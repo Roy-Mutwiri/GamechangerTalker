@@ -16,8 +16,12 @@ public/
 node_modules/
 .vercel/
 
-# Downloaded avatars are big binaries, not source
-avatars/
+# The character roster IS committed (~68MB of .vrm/.warudo). They are binaries
+# and they are large, but a clone without them cannot put anybody on stage --
+# config.toml names these files, so leaving them out makes the checked-in
+# config point at nothing. Nothing here exceeds GitHub's 100MB per-file limit
+# and they never change, so plain git is fine; LFS would add a quota to manage
+# for files that are written once.
 
 # Keep the committed fixture; ignore recordings the operator adds
 tests/fixtures/*.csv
