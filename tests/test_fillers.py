@@ -30,10 +30,25 @@ def test_no_sound_could_ever_trip_the_advice_guard():
         assert is_clean(sound), f"handover sound trips the guard: {sound!r}"
 
 
-def test_the_same_sound_never_lands_twice_running():
-    """Immediate repetition is what makes a tic audible as a tic."""
+def test_a_sound_does_not_come_back_while_it_is_still_remembered():
+    """One-deep memory was not enough. With ten openers and a memory of one,
+    the same sound lands again within a few handovers -- reported from a live
+    run as one host who "keeps saying yeah"."""
+    from narrator.speech.fillers import FILLER_MEMORY
+
     picker = FillerPicker(seed=4)
     heard = [picker.next() for _ in range(40)]
+    for i, sound in enumerate(heard):
+        window = heard[max(0, i - FILLER_MEMORY) : i]
+        assert sound not in window, f"{sound!r} repeated within {FILLER_MEMORY}"
+
+
+def test_a_memory_deeper_than_the_pool_still_returns_something():
+    """PUSHBACKS is smaller than FILLER_MEMORY, so the memory covers the whole
+    pool. It must degrade to 'not the last one', never to nothing."""
+    picker = FillerPicker(seed=9)
+    heard = [picker.next(pushback=True) for _ in range(20)]
+    assert all(heard)
     assert all(a != b for a, b in zip(heard, heard[1:], strict=False))
 
 
@@ -43,12 +58,69 @@ def test_pushbacks_are_a_separate_pool():
     assert picker.next() in OPENERS
 
 
-def test_a_pool_of_one_still_returns_something():
-    """The no-repeat rule must never starve the picker into returning nothing."""
+def test_the_no_repeat_rule_never_starves_the_picker():
     picker = FillerPicker(seed=1)
-    first = picker.next(pushback=True)
-    picker._last = first
-    assert picker.next(pushback=True)
+    assert all(picker.next(pushback=True) for _ in range(30))
+
+
+# ---------------------------------------------------------------------------
+# How often it fires
+# ---------------------------------------------------------------------------
+
+
+def covers(chance, seed=0):
+    import random as _random
+
+    rng = _random.Random(seed)
+    from narrator.speech.fillers import should_cover
+
+    return [
+        should_cover(
+            source="host",
+            last_source="host",
+            stage_index=1,
+            last_stage_index=0,
+            chance=chance,
+            rng=rng,
+        )
+        for _ in range(400)
+    ]
+
+
+def test_not_every_handover_gets_a_sound():
+    """The module said 'not every time' from the day it was written and fired
+    on every handover anyway -- which is how a listener came to report one host
+    repeating a word."""
+    fired = covers(0.45)
+    assert 0 < sum(fired) < len(fired)
+
+
+def test_the_rate_is_roughly_what_was_asked_for():
+    fired = covers(0.45)
+    assert 0.35 < sum(fired) / len(fired) < 0.55
+
+
+def test_a_chance_of_one_still_fires_every_time():
+    assert all(covers(1.0))
+
+
+def test_a_chance_of_zero_turns_it_off_without_disabling_the_feature():
+    assert not any(covers(0.0))
+
+
+def test_something_that_is_not_a_handover_never_fires_however_high_the_chance():
+    import random as _random
+
+    from narrator.speech.fillers import should_cover
+
+    assert not should_cover(
+        source="host",
+        last_source="host",
+        stage_index=0,
+        last_stage_index=0,  # same host continuing
+        chance=1.0,
+        rng=_random.Random(0),
+    )
 
 
 # ---------------------------------------------------------------------------

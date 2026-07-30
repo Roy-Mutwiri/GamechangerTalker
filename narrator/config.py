@@ -154,6 +154,10 @@ class HostsConfig(BaseModel):
     # A short sound in the incoming host's voice on a change of speaker, played
     # while their line is still being synthesised. See speech/fillers.py.
     turn_taking_sounds: bool = True
+    # What fraction of handovers actually get one. Not all of them: a pair who
+    # make a noise before every single turn are their own kind of robot, and at
+    # 1.0 a listener picks one sound out of the ten and hears it as a tic.
+    turn_taking_chance: float = 0.45
     # Silence before a written reply lands, in seconds. People come back at
     # each other in about a second; the scheduler's eight-second floor between
     # market calls is far too long to sound like a conversation.

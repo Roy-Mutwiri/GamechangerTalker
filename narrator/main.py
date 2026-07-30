@@ -53,7 +53,7 @@ from narrator.speech import phonemes as phoneme_tools
 from narrator.speech import visemes as viseme_tools
 from narrator.speech.engine import ALL_VOICES, SilentEngine, build_engine
 from narrator.speech.fillers import ALL as FILLER_SOUNDS
-from narrator.speech.fillers import FillerPicker, is_handover, trim_tail
+from narrator.speech.fillers import FillerPicker, should_cover, trim_tail
 from narrator.speech.normalize import normalize_text
 from narrator.speech.playback import Playback
 from narrator.ui.console import TranscriptPrinter, format_facts
@@ -308,7 +308,8 @@ class Narrator:
         # Which character spoke last, so a handover can be told from one host
         # continuing. -1 is "nobody yet", which is not a handover either.
         self._last_stage_index = -1
-        self.fillers = FillerPicker()
+        # One picker per character on stage, keyed by stage index.
+        self.fillers: dict[int, FillerPicker] = {}
         self.handovers_covered = 0
         self.facts: dict[str, Any] = {}
         self.spoken: Counter[str] = Counter()
@@ -759,15 +760,20 @@ class Narrator:
         """
         if not self.cfg.hosts.turn_taking_sounds or self.dry_run:
             return
-        if not is_handover(
+        if not should_cover(
             source=utterance.source,
             last_source=self._last_spoken_source,
             stage_index=utterance.stage_index,
             last_stage_index=self._last_stage_index,
+            chance=self.cfg.hosts.turn_taking_chance,
+            rng=self.rng,
         ):
             return
 
-        text = self.fillers.next()
+        # A picker per host: what a listener notices is one *voice* repeating a
+        # word, so each host's recent sounds are tracked separately.
+        picker = self.fillers.setdefault(utterance.stage_index, FillerPicker())
+        text = picker.next()
         try:
             sound = await self.engine.synthesize(text, self.cfg.speech.speed, utterance.voice)
         except Exception:

@@ -260,6 +260,12 @@ topic_every = 4
 # taking fifteen seconds to write the turn -- that is a throughput problem and
 # no sound will hide it. See speech/fillers.py.
 turn_taking_sounds = true
+# What fraction of handovers get one. Not all of them -- reported from a live
+# run as "Ada keeps saying yeah": ten sounds, played on every single swap of a
+# pair trading turns every few seconds, is enough repetition for one word to
+# stand out. Some handovers going back to a plain gap is the honest trade,
+# because an audible tic is worse than an audible pause.
+turn_taking_chance = 0.45
 # Fraction of speaking slots the conversation takes while podcast mode is on.
 # Podcast mode is meant to BE the two of them talking, so this is high: the
 # library is no longer a co-presenter, it is an interrupt.

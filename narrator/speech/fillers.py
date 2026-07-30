@@ -29,6 +29,7 @@ one that pays for the mechanism meant to hide the wait.
 from __future__ import annotations
 
 import random
+from collections import deque
 from typing import Any
 
 # Deliberately not "um" and "er". Hesitation markers say the speaker has lost
@@ -100,32 +101,78 @@ def is_handover(
     """Is this the floor changing hands, or one host still holding it?
 
     A sound belongs only on the change. Within one host's run there is nothing
-    to hand over, and a noise before every line is a tic -- a worse artefact
-    than the pause it replaced. A host following a library line is not a
-    handover either: the library is not a person taking a turn.
+    to hand over, and a host following a library line is not a handover either:
+    the library is not a person taking a turn.
+
+    Being a handover makes a sound *allowed*, not *due* -- see `should_cover`.
     """
     if source != "host" or last_source != "host":
         return False
     return stage_index != last_stage_index
 
 
-class FillerPicker:
-    """Hands out sounds without saying the same one twice in a row.
+def should_cover(
+    *,
+    source: str,
+    last_source: str,
+    stage_index: int,
+    last_stage_index: int,
+    chance: float,
+    rng: random.Random | None = None,
+) -> bool:
+    """Does this particular handover get a sound?
 
-    Immediate repetition is what makes a tic audible as a tic: two "Mm,"s in
-    consecutive handovers and the audience has found the loop. Beyond avoiding
-    that, randomness is fine -- nobody notices a sound recurring four turns
-    apart.
+    People do not preface every single turn with a noise, and a pair who do are
+    a different kind of robot from the pair who never do. This module said so
+    from the day it was written -- and fired on every handover anyway, which is
+    how a listener came to report that one host "keeps saying yeah". Ten sounds
+    played on every swap of a pair trading turns every few seconds is enough
+    repetition for one word to stand out.
+
+    So the sound is occasional. The cost is that some handovers go back to
+    being a plain gap, which is the honest trade: an audible tic is worse than
+    an audible pause.
+    """
+    if not is_handover(
+        source=source,
+        last_source=last_source,
+        stage_index=stage_index,
+        last_stage_index=last_stage_index,
+    ):
+        return False
+    if chance >= 1.0:
+        return True
+    if chance <= 0.0:
+        return False
+    return (rng or random).random() < chance
+
+
+# How many recent sounds a host refuses to reuse. One was not enough: with ten
+# openers and a memory of one, the same sound lands again within a few
+# handovers, and on a stream where the pair swap every few seconds that is
+# often enough for a listener to notice one word -- reported from a live run as
+# "Ada keeps saying yeah".
+FILLER_MEMORY = 5
+
+
+class FillerPicker:
+    """Hands out sounds without reusing one a host has just made.
+
+    Memory rather than a single last-value, and one picker per host: what a
+    listener notices is one *voice* repeating a word, so Ada's recent sounds
+    must not be constrained by Mo's or freed by them either.
     """
 
     def __init__(self, seed: int | None = None) -> None:
         self._random = random.Random(seed)
-        self._last = ""
+        self._recent: deque[str] = deque(maxlen=FILLER_MEMORY)
 
     def next(self, *, pushback: bool = False) -> str:
-        pool = [f for f in (PUSHBACKS if pushback else OPENERS) if f != self._last]
-        if not pool:  # pool of one, and we just used it
+        pool = [f for f in (PUSHBACKS if pushback else OPENERS) if f not in self._recent]
+        if not pool:  # memory covers the whole pool; fall back to the oldest
+            pool = [f for f in (PUSHBACKS if pushback else OPENERS) if f != self._recent[-1]]
+        if not pool:
             pool = list(PUSHBACKS if pushback else OPENERS)
         choice = self._random.choice(pool)
-        self._last = choice
+        self._recent.append(choice)
         return choice
