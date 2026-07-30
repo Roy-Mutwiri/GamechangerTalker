@@ -161,6 +161,8 @@ python -m tools.speech_check             # synthesis + phonemes + viseme scope
 python -m tools.avatar_check model.vrm   # will this avatar lip sync?
 python -m tools.bench                    # hot-path microbenchmarks
 python -m tools.make_fixture --days 20   # regenerate replay data
+python -m tools.warudo_setup --check     # is the Warudo half installed?
+python -m tools.warudo_export --check    # has the live scene drifted from the committed one?
 ```
 
 ---
@@ -227,12 +229,31 @@ depends on. Do not swap it for an amplitude-driven mouth.
 
 ### 4. Warudo
 
-Warudo takes external control through a Blueprint: a `Receive WebSocket Message`
-node feeding `Set Blend Shape` nodes. **Check the WebSocket port in your running
-Warudo instance and put it in `config.toml` (`warudo.port`) — the shipped value
-is a placeholder.** `WARUDO_SETUP.md` documents the blueprint node by node,
-including which Warudo settings to turn *off* (its own lip sync will fight the
-narrator's visemes).
+Install it from Steam (app 2079120), launch it once so it creates its folders,
+**close it**, then:
+
+```powershell
+python -m tools.warudo_setup --check     # what is missing; writes nothing
+python -m tools.warudo_setup             # install it
+```
+
+Half of the avatar setup does not live in this repo by default — it lives inside
+the Warudo install, as a scene file holding the character, the camera and the
+`narrator` blueprint that turns `{"action": "viseme_aa", "data": 0.8}` into a
+blendshape. That scene is committed here as `warudo/DefaultScene.json`, and the
+command above installs it along with the sixteen models in `avatars/`, which
+Warudo can only load out of its own Characters folder. Without it you get a
+narrator sending perfectly good viseme frames at a Warudo with nothing
+listening, an empty avatar picker, and no error anywhere.
+
+Warudo must be closed while it runs: it holds the scene in memory and rewrites
+the file on exit. The tool refuses rather than letting the edit vanish later.
+
+Two things it cannot do for you: **read the WebSocket port** out of Warudo's
+settings and put it in `config.toml` (`warudo.port`; `19190` here), and **turn
+Warudo's own lip sync off** for the character, which otherwise fights the
+narrator's visemes. `WARUDO_SETUP.md` §0 covers both, and documents the
+blueprint node by node for anyone rebuilding it by hand.
 
 Run without it any time with `--no-avatar`. A dead bridge is never fatal — the
 narrator keeps speaking, because audio is the stream and the avatar is

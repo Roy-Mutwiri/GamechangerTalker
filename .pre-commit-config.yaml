@@ -16,9 +16,12 @@ repos:
       - id: check-json
       - id: mixed-line-ending
         args: [--fix=lf]
+      # The exempt directories are the ones that exist to be large: the replay
+      # fixture, the character roster, and the Warudo scene. Everything else
+      # over 2MB in this repo is a mistake.
       - id: check-added-large-files
         args: [--maxkb=2048]
-        exclude: ^tests/fixtures/
+        exclude: ^(tests/fixtures/|avatars/|warudo/)
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.0

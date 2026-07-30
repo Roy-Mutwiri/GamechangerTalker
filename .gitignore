@@ -23,6 +23,13 @@ node_modules/
 # and they never change, so plain git is fine; LFS would add a quota to manage
 # for files that are written once.
 
+# warudo/DefaultScene.json IS committed, and it is the reason a fresh clone can
+# put anybody on stage at all. Half the avatar setup -- the character, the
+# camera, and the blueprint that turns a websocket message into a blendshape --
+# lives inside the Warudo install rather than here, so without this file a
+# clone gets a narrator talking to nothing. Regenerate it with
+# `python -m tools.warudo_export`; install it with `python -m tools.warudo_setup`.
+
 # Keep the committed fixture; ignore recordings the operator adds
 tests/fixtures/*.csv
 !tests/fixtures/xauusd_m1.csv

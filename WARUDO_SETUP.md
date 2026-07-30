@@ -30,6 +30,97 @@ Emotes arrive on market events, at most one per minute.
 
 ---
 
+## 0. On a new machine, in one command
+
+**Read this first if you have just cloned the repo and Warudo does nothing.**
+
+The setup lives in two places, and only one of them is this repo:
+
+| Half | Where | In git? |
+|---|---|---|
+| The narrator, `config.toml`, the avatar files | this repo | **yes** |
+| The Warudo **scene** — character, camera, room, and the `narrator` blueprint that turns a websocket message into a blendshape | `Warudo_Data/StreamingAssets/Scenes/DefaultScene.json`, inside the Warudo install | **it is now**, as `warudo/DefaultScene.json` |
+| The avatar files Warudo can actually load | `Warudo_Data/StreamingAssets/Characters/` | the repo has them in `avatars/`, but Warudo does not look there |
+
+That middle row is the whole problem. Cloning the repo gets you a narrator that
+sends perfectly good viseme frames into a Warudo with no blueprint listening
+for them, and an avatar picker that is empty because `roster.py` drops every
+character it cannot find in Warudo's own Characters folder. Nothing errors.
+The mouth simply never moves.
+
+So, on the new machine:
+
+```powershell
+git clone <this repo>
+# install Warudo from Steam (app 2079120) and launch it once, then close it
+python -m tools.warudo_setup --check     # what is missing; writes nothing
+python -m tools.warudo_setup             # install it
+```
+
+**Close Warudo before the second command.** Warudo holds the scene in memory
+and rewrites the file on exit, so an edit made underneath a running Warudo is
+thrown away at the exact moment it looks like it worked. The tool refuses to
+run while `Warudo.exe` is up, rather than letting you discover this later.
+
+What it does, in order:
+
+1. **Finds Warudo.** Both default Steam paths, every library in
+   `libraryfolders.vdf`, `$env:WARUDO_ROOT`, or `--warudo-root "D:\...\Warudo"`.
+2. **Copies `avatars/*.vrm` into `StreamingAssets/Characters`.** Sixteen models,
+   ~68 MB, already in the repo. This is what fills the avatar picker.
+3. **Installs the scene**, one of two ways, chosen for you:
+   * **Replace** — no scene yet, or a scene with no `Character 1`: the packaged
+     scene from `warudo/DefaultScene.json` is copied in whole. That is this
+     machine's scene: the same camera, the same framing, the same thirty-node
+     blueprint that has been on stream.
+   * **Graft** — you already ran Warudo's Onboarding, or built a room you want
+     to keep: only the `narrator` blueprint is added, and every
+     `Character 1` / `Camera 1` reference inside it is re-pointed at *your*
+     scene's assets. Warudo mints a fresh guid per asset on every install, so
+     copying the blueprint without this step wires it to ids that do not exist
+     here. Node pairs whose target is missing — the `viseme2_` half, if you
+     have no second character — are dropped rather than left dangling, because
+     a blendshape node aimed at nothing throws sixty times a second.
+4. **Prints the contract** — every websocket action and what it drives — and
+   checks whether anything is listening on `warudo.port`.
+
+A rollback copy is written before anything is overwritten
+(`DefaultScene.json.pre-narrator`). To undo:
+
+```powershell
+python -m tools.warudo_setup --remove    # takes the blueprint back out
+```
+
+### Keeping the packaged scene current
+
+The committed scene is a snapshot. Change the blueprint, move the camera, add a
+node — none of it reaches the next machine until you export it again:
+
+```powershell
+python -m tools.warudo_export            # writes warudo/DefaultScene.json
+python -m tools.warudo_export --check    # has the live scene drifted from it?
+```
+
+The export strips what belongs to the machine rather than the project: the
+motion-capture rig and its graph (read off the characters' own
+`TrackingAssetIds`/`TrackingGraphIds`, so it works whether that is SteamVR here
+or MediaPipe there), and the microphone in the disabled MFCC graph, which is
+stored as a Windows sound-endpoint GUID and names a card that does not exist
+anywhere else. Everything else — every node, every port, every framing number —
+goes across verbatim, because Warudo wrote it and Warudo is the only authority
+on what its own nodes look like.
+
+### Still to do by hand, on the new machine
+
+Two things the scene file cannot carry:
+
+* **The WebSocket port.** It is a Warudo setting, not part of the scene. §1
+  below is how to read it without guessing. `19190` is the value here.
+* **Warudo's own lip sync must be off** for the character (§2, last paragraph).
+  Two things writing the same five blendshapes fight, and the mouth jitters.
+
+---
+
 ## 1. The port
 
 **Verified on this install: `19190`, which is what `config.toml` already
@@ -82,8 +173,13 @@ audio is the stream and the avatar is decoration.
 
 ## 2. Get an avatar
 
-**Four are already installed and verified**, in
-`Steam\steamapps\common\Warudo\Warudo_Data\StreamingAssets\Characters`:
+**The roster is in the repo, under `avatars/`, and `tools.warudo_setup` copies
+it into Warudo for you.** Warudo only ever looks in its own Characters folder —
+`Steam\steamapps\common\Warudo\Warudo_Data\StreamingAssets\Characters` — so a
+model sitting in the clone is a model the picker will not offer. That copy is
+step 2 of §0; nothing below needs doing by hand on a new machine.
+
+Four are verified end to end:
 
 | File | Mouth | Emotes | Bones | Notes |
 |---|---|---|---|---|
@@ -480,8 +576,11 @@ pursed.
 
 ## 3b. Rebuilding the Blueprint by hand
 
-Already built and in the scene as `narrator` — this section is for rebuilding
-it on another machine, or after a scene is lost.
+Already built and in the scene as `narrator`, and `python -m tools.warudo_setup`
+(§0) installs it on a new machine without any of this. **This section is the
+fallback**: a scene lost with no backup, a Warudo release that changes a node
+schema out from under the packaged copy, or wanting to understand what the
+twelve — now thirty — nodes actually do before trusting a script to write them.
 
 **Blueprints → New Blueprint**, call it `narrator`.
 
@@ -594,6 +693,8 @@ python -m tools.speech_check
 
 | Symptom | Cause |
 |---|---|
+| Fresh clone, everything looks fine, nothing ever moves | The scene is not in the repo checkout — run `python -m tools.warudo_setup --check` (§0) |
+| The avatar picker in the browser UI is empty | The models are in `avatars/` but not in Warudo's Characters folder; same command |
 | `warudo down (ConnectionRefusedError)` | Wrong port, or the WebSocket server is off in Warudo settings |
 | Connected, frames sent, nothing moves | Blueprint not enabled, or Set Blend Shape is pointed at the wrong character |
 | Mouth twitches or fights itself | Warudo's own lip sync is still enabled on that character |
