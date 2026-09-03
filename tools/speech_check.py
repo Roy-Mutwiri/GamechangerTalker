@@ -13,6 +13,7 @@ without Warudo running.
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 
 from narrator.config import load_config, project_root
@@ -50,6 +51,13 @@ def draw(frames, width: int = 64) -> None:
 
 
 def main() -> None:
+    # The phoneme lines below are IPA. A Windows console defaults to cp1252
+    # and dies on them mid-report, after the synthesis it was meant to check
+    # has already succeeded -- so say utf-8 up front rather than lose the run.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--text", default=None)
     ap.add_argument("--voice", default=None)

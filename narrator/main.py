@@ -998,10 +998,33 @@ class Narrator:
             return None
         return [e for e in entries if e is not None]
 
+    def _enter_podcast(self) -> None:
+        """The half of podcast mode that is not a camera move.
+
+        Both hosts unpaused, and the conversation's own speech budget instead
+        of the solo narrator's. Kept separate from the staging because it is
+        the half that has nothing to do with whether an avatar exists.
+        """
+        self.duet_stage = True
+        self.hosts.set_paused(False)
+        self.scheduler.density_override = self.cfg.hosts.podcast_density
+
     def build_duet_stage(self) -> None:
         """Put both hosts on screen. Called at startup and by the toggle."""
-        if not self.hosts.usable or not self.bridge.enabled:
+        if not self.hosts.usable:
             return
+
+        # Podcast mode is a speech budget and a second voice. Warudo gives it
+        # two bodies when it is there, and the browser UI draws its own face
+        # when it is not -- neither is what makes it a conversation. Gating the
+        # whole mode on the avatar bridge pinned every Warudo-less run to the
+        # solo narrator's density, which is most of why those runs sat quiet
+        # with a pair of hosts that had turns ready and nowhere to put them.
+        if not self.bridge.enabled:
+            self._enter_podcast()
+            self.note("podcast mode on: both hosts, no avatar stage")
+            return
+
         entries = self._host_entries()
         if entries is None:
             return
@@ -1018,9 +1041,7 @@ class Narrator:
             left_focus=focus.get(left.file, 0.0) or left.focus_height,
             right_focus=focus.get(right.file, 0.0) or right.focus_height,
         ):
-            self.duet_stage = True
-            self.hosts.set_paused(False)
-            self.scheduler.density_override = self.cfg.hosts.podcast_density
+            self._enter_podcast()
             self.bridge.reload_scene()
             names = [self.hosts.personas[k].name for k in self.hosts.order]
             self.note(
@@ -1438,9 +1459,15 @@ async def run_async(cfg: Config, args: argparse.Namespace, use_dashboard: bool) 
     ]
     if narrator.bridge.enabled:
         tasks.append(asyncio.create_task(narrator.bridge.start(), name="warudo"))
-        # Two hosts need two characters. Built before the first line, so the
-        # scene reload does not interrupt anyone mid-sentence.
-        narrator.build_duet_stage()
+    # Two hosts need two characters when there is a stage to put them on, and
+    # the conversation's own speech budget whether or not there is. Built before
+    # the first line, so a scene reload does not interrupt anyone mid-sentence.
+    #
+    # Deliberately outside the bridge check. Podcast mode is the pair talking;
+    # the avatars are how they are drawn, not what makes it a conversation.
+    # Gating this on Warudo left every Warudo-less run narrating solo at half
+    # the speech budget with two hosts queued up behind it and no way through.
+    narrator.build_duet_stage()
 
     # Page the local model onto the GPU now rather than on the first turn,
     # where it would look like the hosts were broken for a minute.

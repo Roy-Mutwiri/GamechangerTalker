@@ -97,8 +97,15 @@ asian_average_days = 20      # lookback for asian_range_pct
 # ---------------------------------------------------------------------------
 [scheduler]
 tick_seconds = 2.0           # selection loop cadence
-min_gap_seconds = 8.0        # hard floor between two lines
-target_density = 0.35        # fraction of wall-clock spent speaking
+# 8s and 0.35 were a solo narrator's numbers: one voice reading market calls,
+# where a gap is punctuation. Podcast mode is two people talking, and people do
+# not leave eight seconds between turns -- that floor is most of what decides
+# whether an exchange sounds like a conversation or like two announcements read
+# in turn. Raised alongside the topic bank (108 kernels, up from 35): density
+# without material behind it is exactly how bridge filler grew to 42% of
+# everything spoken, which is the "Still watching." stream nobody stays on.
+min_gap_seconds = 4.0        # hard floor between two lines
+target_density = 0.70        # fraction of wall-clock spent speaking
 density_window_seconds = 600 # rolling window the density is measured over
 # Silence before pulling filler. A live stream that goes quiet for a minute and
 # a half reads as broken -- people check whether the audio has dropped.
@@ -106,7 +113,7 @@ density_window_seconds = 600 # rolling window the density is measured over
 # closed the gaps but pushed bridge filler to 42% of everything spoken, which is
 # the "Still watching." stream nobody stays on. 45s plus shorter cooldowns on
 # the content templates gets the same density with real lines filling it.
-bridge_after_seconds = 45.0
+bridge_after_seconds = 30.0
 default_cooldown = 300       # used when a template omits "cooldown"
 default_max_per_session = 20 # used when a template omits "max_per_session"
 recent_memory = 12           # how many recent template ids bias selection away
@@ -189,23 +196,31 @@ enabled = true
 backend = "ollama"
 # Ollama tag, or a Claude model id when backend = "anthropic".
 #
-# The 7B is here for one reason, and it is not modesty. Measured on this
-# machine, both fully on the GPU, generating a turn and comparing against how
-# long Kokoro takes to say it:
+# The ratio that decides this: how long a model takes to WRITE a turn against
+# how long Kokoro takes to SAY it. Above 1.0 the queue drains faster than it
+# fills and the pair fall into the long silences that make an exchange sound
+# broken. A turn's length cancels out of the ratio, so shorter turns cannot
+# rescue a model that generates slower than it speaks.
 #
-#   qwen2.5:14b-instruct-q4_K_M   14.6s to write,  8.5s to say   1.73x  STALLS
-#   qwen2.5:7b-instruct-q4_K_M     0.7s to write,  8.1s to say   0.09x  fluent
+# Re-measured on this machine (RTX 5080 Laptop, 16GB), each model alone on the
+# GPU, six turns including the long educational ones:
 #
-# Note the ratio is what matters, not the raw speed: a turn's length cancels
-# out of it, so shorter turns cannot fix a model that generates slower than it
-# speaks. Above 1.0 the queue drains faster than it fills and the pair fall
-# into the long silences that make an exchange sound broken. The 14B is the
-# better writer and it does not matter, because a smarter host who arrives six
-# seconds late is worse than a plainer one who answers straight away.
+#   qwen2.5:14b-instruct-q4_K_M   5.0s to write, 71.3s to say   0.07x  fluent
+#   qwen2.5:7b-instruct-q4_K_M    3.1s to write, 75.8s to say   0.04x  fluent
 #
-# The 14B is still pulled and one line away if this machine ever gets more
-# headroom. Changing this needs a restart; hot reload does not cover it.
-model = "qwen2.5:7b-instruct-q4_K_M"
+# An earlier note here recorded the 14B at 1.73x and STALLS. That was VRAM, not
+# the model: with Kokoro and the 7B vision model already resident there is no
+# room for nine gigabytes of weights, so it ran partly on the CPU and the
+# measurement recorded the swapping rather than the model. Given the room it
+# has fourteen times the headroom it needs, and it is the better writer --
+# which is the entire point of running it.
+#
+# So watch the VRAM budget rather than the model list. 14B (9.0GB) + Kokoro
+# leaves room for a small vision model and nothing more; putting qwen2.5vl:7b
+# (6.0GB) back alongside it is what produced the original figure. The chart
+# model below is sized to fit beside this one deliberately.
+# Changing this needs a restart; hot reload does not cover it.
+model = "qwen2.5:14b-instruct-q4_K_M"
 ollama_host = "http://127.0.0.1:11434"
 # Short on purpose, twice over. Real conversational turns are short -- "wait,
 # why does that matter?" is a whole turn -- and long even paragraphs are the
@@ -249,7 +264,7 @@ timeout_seconds = 30.0
 # narrator/script/topics.py for the bank and why the kernels carry their own
 # facts. 0 turns it off and leaves the pair with only the price to discuss,
 # which is what the stream sounded like before this existed.
-topic_every = 4
+topic_every = 3
 # On a change of speaker, the incoming host makes a short sound in their own
 # voice -- "Mm," "Yeah," "Hang on," -- while their real line is still being
 # synthesised. Two people swapping turns never leave a clean gap; the one
@@ -365,7 +380,14 @@ enabled = true
 # that it only works because a look happens once in a while. "anthropic" reads
 # a chart properly and is metered per image.
 backend = "ollama"
-model = "qwen2.5vl:7b"
+# Sized to sit beside the 14B host model, not chosen for its own sake. The
+# budget is 16GB: 14B weights (9.0GB) + Kokoro + this. The 7B vision model
+# (6.0GB) does fit on its own and does NOT fit alongside the 14B -- ollama then
+# evicts one to load the other, and whichever loses reloads mid-stream, which
+# costs the conversation seconds it does not have. The 3B reads a chart more
+# coarsely; a look every 90 seconds that says "trending, price at the top of
+# the range" is worth more than a better sentence that unloads the hosts.
+model = "qwen2.5vl:3b"
 look_every_seconds = 90
 width = 1280
 # A description older than this is dropped rather than used. It would be

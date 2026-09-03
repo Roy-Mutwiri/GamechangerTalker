@@ -36,3 +36,14 @@ tests/fixtures/*.csv
 
 .vercel
 .env*
+
+# Installer build output. The exe is a release artifact, not source -- it is
+# attached to the GitHub release rather than committed, because a 49 MB binary
+# in git history is 49 MB in every clone forever.
+dist/
+*.iss.log
+
+# Written by installer/setup.ps1 on the machine it ran on, to record that the
+# ~15 GB of dependencies are already there. Never travels: a fresh install that
+# inherited this would skip the download and then fail to import torch.
+.setup-complete

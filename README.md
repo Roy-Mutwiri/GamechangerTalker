@@ -1,5 +1,11 @@
 # Trade Fix Narrator — speech core
 
+> **Just want to run it?** Download
+> **[GamechangerTalkerSetup.exe](https://github.com/Roy-Mutwiri/GamechangerTalker/releases/latest)**
+> and see [INSTALL.md](INSTALL.md). The installer fetches Python, PyTorch, the
+> voice, the AI models and MetaTrader 5 on its own. The rest of this file is
+> how the thing works.
+
 A narrator for a live XAUUSD stream. It reads **the operator's own sentences**
 aloud with current numbers in them, and drives a 3D avatar's mouth while it
 does.
