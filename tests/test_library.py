@@ -52,9 +52,10 @@ def test_the_shipped_library_loads():
     library = TemplateLibrary(cfg.path(cfg.templates.dir), cfg)
     library.load()
     assert len(library.templates) >= 120, "the seed library should ship 120+ lines"
-    assert len(library.files) == 12
+    assert len(library.files) == 13
     categories = {t.category for t in library.templates}
     assert categories == {
+        "audience",
         "session",
         "price",
         "levels",

@@ -20,6 +20,14 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
+# The console the narrator prints to is not always UTF-8. A Windows console
+# left on cp1252 cannot encode an em dash, and rich raises UnicodeEncodeError
+# from inside its own renderer -- which takes the whole stream down over a
+# punctuation mark. installer/launch.ps1 has always set this; run.ps1 had not,
+# so anybody starting the stream the documented way was one dash away from a
+# crash. Found by tools/soak.py on its first run.
+$env:PYTHONIOENCODING = "utf-8"
+
 $python = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $python)) {
     Write-Host "No venv found. Create it first:" -ForegroundColor Yellow

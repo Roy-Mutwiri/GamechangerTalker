@@ -325,8 +325,15 @@ def test_bridges_only_fire_after_a_long_silence(tmp_path):
             "variants": ["Still watching."],
         }
     ]
+    # The silence ceiling is a separate, later mechanism and would fire long
+    # before 90s; turned off here so this test still measures the thing it was
+    # written to measure.
     _, _, scheduler = build(
-        tmp_path, templates, min_gap_seconds=0, bridge_after_seconds=90
+        tmp_path,
+        templates,
+        min_gap_seconds=0,
+        bridge_after_seconds=90,
+        max_silence_seconds=0,
     )
     stream = StreamState(started_at=T0)
     stream.note_speech(T0, 2.0)
@@ -427,3 +434,87 @@ def test_estimated_duration_scales_with_length(tmp_path):
     long = scheduler.estimate_seconds(" ".join(["word"] * 40))
     assert short >= cfg.speech.min_utterance_seconds
     assert long > short
+
+
+def test_silence_has_a_ceiling_the_density_cap_cannot_raise(tmp_path):
+    """A paused brain, a quiet market and a density cap are three independent
+    reasons to say nothing, each individually correct. Together they are how a
+    stream goes silent for half a minute with nothing in the log that looks
+    like a fault."""
+    templates = [
+        {
+            "id": "bridge.filler",
+            "category": "bridge",
+            "priority": 1,
+            "when": "True",
+            "cooldown": 0,
+            "variants": ["Still watching."],
+        }
+    ]
+    _, _, scheduler = build(
+        tmp_path,
+        templates,
+        min_gap_seconds=0,
+        bridge_after_seconds=90,
+        max_silence_seconds=12,
+        target_density=0.01,   # far over budget, so the density cap is on
+    )
+    stream = StreamState(started_at=T0)
+    stream.note_speech(T0, 60.0)
+
+    # Under the ceiling: the density cap wins and the stream stays quiet.
+    assert scheduler.select(T0 + timedelta(seconds=8), FACTS, stream) is None
+
+    # Past it: something gets said anyway.
+    spoken = scheduler.select(T0 + timedelta(seconds=13), FACTS, stream)
+    assert spoken is not None
+    assert spoken.source == "bridge"
+    assert scheduler.silence_breaks == 1
+
+
+def test_the_ceiling_still_respects_a_session_cap(tmp_path):
+    """Cooldowns and caps are the operator's instructions about how often a
+    line may be heard. Filling silence must not let one bridge run all night."""
+    templates = [
+        {
+            "id": "bridge.only",
+            "category": "bridge",
+            "priority": 1,
+            "when": "True",
+            "cooldown": 0,
+            "max_per_session": 1,
+            "variants": ["Still watching."],
+        }
+    ]
+    _, _, scheduler = build(
+        tmp_path, templates, min_gap_seconds=0, max_silence_seconds=5
+    )
+    stream = StreamState(started_at=T0)
+    stream.note_speech(T0, 1.0)
+
+    assert scheduler.select(T0 + timedelta(seconds=10), FACTS, stream) is not None
+    # Its one use is spent; the ceiling must not spend it again.
+    assert scheduler.select(T0 + timedelta(seconds=30), FACTS, stream) is None
+
+
+def test_the_ceiling_can_be_turned_off(tmp_path):
+    templates = [
+        {
+            "id": "bridge.filler",
+            "category": "bridge",
+            "priority": 1,
+            "when": "True",
+            "cooldown": 0,
+            "variants": ["Still watching."],
+        }
+    ]
+    _, _, scheduler = build(
+        tmp_path,
+        templates,
+        min_gap_seconds=0,
+        bridge_after_seconds=90,
+        max_silence_seconds=0,
+    )
+    stream = StreamState(started_at=T0)
+    stream.note_speech(T0, 1.0)
+    assert scheduler.select(T0 + timedelta(seconds=30), FACTS, stream) is None

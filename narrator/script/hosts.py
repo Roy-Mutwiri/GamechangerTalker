@@ -742,6 +742,7 @@ class HostConversation:
 
         self.backend = build_backend(cfg)
         self._pending: asyncio.Task[Turn | None] | None = None
+        self._pending_started = 0.0
         self._queue: deque[Turn] = deque()
         self._warming = False
         self._last_error = ""
@@ -798,6 +799,17 @@ class HostConversation:
             "running the stream on its own; fix the cause and restart.",
             reason,
         )
+
+    def waiting_for_seconds(self) -> float:
+        """How long a turn has been in flight, or 0 if none is.
+
+        The thinking face is driven off this rather than off a timer, so it
+        appears exactly when the pair are actually waiting on a model and
+        never when they are merely between lines.
+        """
+        if self._pending is None or self._pending.done():
+            return 0.0
+        return max(0.0, time.monotonic() - self._pending_started)
 
     def rate_limited_for(self) -> float:
         """Seconds until the budget or a 429 lets the pair speak again."""
@@ -859,6 +871,7 @@ class HostConversation:
             return
         if len(self._queue) >= max(1, self.cfg.queue_depth):
             return
+        self._pending_started = time.monotonic()
         self._pending = asyncio.create_task(self._generate(facts, now, context))
 
     def _harvest(self) -> None:

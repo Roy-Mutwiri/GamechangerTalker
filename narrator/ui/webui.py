@@ -55,6 +55,39 @@ class _Handler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
+    def do_POST(self) -> None:
+        """POST /audience -- one chat event, as JSON.
+
+        Bound to the same loopback address as the rest of the UI. Nothing here
+        trusts the body: it is handed to Audience.push_json, which filters,
+        truncates and rate-limits before a single word can reach a prompt.
+
+        The reply is always 204, even for a rejected event. A spammer learning
+        which of their messages got through is a spammer with a working
+        feedback loop.
+        """
+        if self.path.rstrip("/") != "/audience":
+            self.send_error(404)
+            return
+
+        audience = getattr(self.server, "audience", None)
+        length = int(self.headers.get("Content-Length") or 0)
+        # A body larger than this is not a chat comment.
+        if length <= 0 or length > 8192:
+            self.send_response(204)
+            self.end_headers()
+            return
+
+        raw = self.rfile.read(length)
+        if audience is not None:
+            try:
+                audience.push_json(json.loads(raw.decode("utf-8", "replace")))
+            except (json.JSONDecodeError, ValueError) as exc:
+                log.debug("bad audience POST: %s", exc)
+
+        self.send_response(204)
+        self.end_headers()
+
 
 class WebUI:
     def __init__(self, cfg: Config, *, run_id: str, symbol: str, mode: str) -> None:
@@ -88,6 +121,9 @@ class WebUI:
         # the layer has given up -- the button then explains rather than
         # silently doing nothing when clicked.
         self.podcast_usable: bool = False
+        # Set by the runner when the audience channel is on. The HTTP
+        # handler reaches it through the server object.
+        self.audience: Any = None
         self.clients: set[Any] = set()
         self.history: list[dict[str, Any]] = []
         self._http: ThreadingHTTPServer | None = None
@@ -107,6 +143,10 @@ class WebUI:
             return False
         try:
             self._http = ThreadingHTTPServer((self.host, self.port), _Handler)
+            # Hung off the server so the handler can reach it: a
+            # BaseHTTPRequestHandler is constructed per request and has no
+            # other way to see application state.
+            self._http.audience = self.audience  # type: ignore[attr-defined]
         except OSError as exc:
             log.error(
                 "could not bind the web UI to %s:%s (%s)", self.host, self.port, exc

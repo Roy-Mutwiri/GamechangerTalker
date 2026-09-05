@@ -85,6 +85,17 @@ class SchedulerConfig(BaseModel):
     target_density: float = 0.35
     density_window_seconds: float = 600.0
     bridge_after_seconds: float = 90.0
+    # The hard ceiling on silence, in seconds. 0 turns it off.
+    #
+    # bridge_after_seconds is a preference: it waits for the density cap and
+    # for cooldowns, and correctly so. This does not. A paused brain, a quiet
+    # market and a density cap are three independent reasons to say nothing,
+    # each individually right, and together they are how a stream goes silent
+    # for half a minute with nothing in the log that looks like a fault.
+    #
+    # When it fires it logs every reason the stream was about to stay quiet,
+    # because "it went silent" is not actionable.
+    max_silence_seconds: float = 12.0
     default_cooldown: int = 300
     default_max_per_session: int = 20
     recent_memory: int = 12
@@ -176,6 +187,14 @@ class HostsConfig(BaseModel):
     # make a noise before every single turn are their own kind of robot, and at
     # 1.0 a listener picks one sound out of the ten and hears it as a tic.
     turn_taking_chance: float = 0.45
+    # Silence before the avatar visibly starts thinking, in seconds. 0 is off.
+    #
+    # The gap between asking for a turn and getting one is the moment the
+    # illusion is most obviously mechanical: the pair just stop. A face that is
+    # working is the difference between "waiting" and "broken". Short, because
+    # a hosted model answers in one to four seconds and a thinking face that
+    # only appears after five would never be seen.
+    thinking_after_seconds: float = 1.5
     # Silence before a written reply lands, in seconds. People come back at
     # each other in about a second; the scheduler's eight-second floor between
     # market calls is far too long to sound like a conversation.
@@ -230,6 +249,39 @@ class HostsConfig(BaseModel):
     budget_state_file: str = "logs/llm_budget.json"
 
     personas: list[PersonaConfig] = Field(default_factory=list)
+
+
+class AudienceConfigModel(BaseModel):
+    """The chat, and what the hosts are allowed to hear of it.
+
+    Off by default. A stream with no ingestion process running loses nothing
+    by leaving it off, and turning it on with nothing feeding it is a queue
+    that is always empty rather than an error.
+
+    Everything that arrives here is untrusted text from strangers going into a
+    prompt on a live microphone, which is why the filtering is not optional and
+    not configurable away: links, handles and phone numbers are always dropped,
+    because a host reading another channel's name out loud is the single worst
+    thing this feature could produce.
+    """
+
+    enabled: bool = False
+    # POST /audience on the existing web UI port, and/or a JSONL file that a
+    # separate ingestion process appends to. Both feed one queue.
+    file: str = ""
+    max_queue: int = 200
+    # How many events reach the model in one turn. Two is enough to react to
+    # the room; more and the turn becomes a reading of the chat.
+    max_per_turn: int = 2
+    # One loud viewer must not dominate. Gifts bypass this: someone who paid
+    # twice in a minute has earned being noticed twice.
+    user_cooldown_seconds: float = 45.0
+    max_comment_chars: int = 160
+    # A comment from four minutes ago reaches the microphone as a non
+    # sequitur, and the room has moved on from it.
+    stale_after_seconds: float = 120.0
+    # Added to the built-in list, never replacing it.
+    blocklist: list[str] = Field(default_factory=list)
 
 
 class CommunityConfig(BaseModel):
@@ -448,6 +500,7 @@ class Config(BaseModel):
     audio: AudioConfig = Field(default_factory=AudioConfig)
     community: CommunityConfig = Field(default_factory=CommunityConfig)
     hosts: HostsConfig = Field(default_factory=HostsConfig)
+    audience: AudienceConfigModel = Field(default_factory=AudienceConfigModel)
     warudo: WarudoConfig = Field(default_factory=WarudoConfig)
     chart: ChartConfig = Field(default_factory=ChartConfig)
     ui: UIConfig = Field(default_factory=UIConfig)

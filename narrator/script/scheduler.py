@@ -104,6 +104,10 @@ class Scheduler:
         self._session_started: datetime | None = None
         self._last_session: str | None = None
         self.last_skip: SkipReason | None = None
+        # How often the silence ceiling had to step in. A number that
+        # climbs over a stream means the library is running dry, not that
+        # the ceiling is working.
+        self.silence_breaks = 0
         # Raised while two hosts are in conversation. A solo narrator reading
         # market calls should leave most of the hour silent; two people talking
         # to each other should not, and holding a podcast to a narrator's
@@ -212,6 +216,39 @@ class Scheduler:
                 self.last_skip = None
                 return utterance
 
+        # The floor. Nothing above this point has produced a line, and the
+        # stream has now been quiet long enough that a listener notices.
+        #
+        # bridge_after_seconds is a preference and defers to the density cap;
+        # this is a ceiling and does not. A paused brain plus a quiet market
+        # plus a density cap is three independent reasons to say nothing, and
+        # each of them is individually correct -- which is exactly how a stream
+        # ends up silent for half a minute with nothing in the log that looks
+        # like a fault.
+        ceiling = self.cfg.scheduler.max_silence_seconds
+        if ceiling > 0 and since >= ceiling:
+            forced = [
+                t
+                for t in self.library.by_category(BRIDGE_CATEGORY)
+                if t.is_ready(now) and t.when.evaluate(facts)
+            ]
+            # Cooldowns and per-session caps still apply. They are the
+            # operator's instructions about how often a specific line may be
+            # heard, and overriding them to fill silence would let one bridge
+            # run all night. Only the density cap is ignored here -- that is a
+            # budget for the stream as a whole, and dead air is not what it was
+            # meant to buy.
+            utterance = self._choose(now, facts, forced, source="bridge")
+            if utterance is not None:
+                log.info(
+                    "%.0fs of silence: forcing a bridge. Blocked by: %s",
+                    since,
+                    self._why_nothing(density_capped, density, blocked),
+                )
+                self.silence_breaks += 1
+                self.last_skip = None
+                return utterance
+
         if density_capped:
             self.last_skip = SkipReason(
                 "over density",
@@ -225,6 +262,25 @@ class Scheduler:
         else:
             self.last_skip = SkipReason("no template matches the market")
         return None
+
+    def _why_nothing(
+        self, density_capped: bool, density: float, blocked: int
+    ) -> str:
+        """Every reason the stream was about to stay quiet, named at once.
+
+        Logged when the ceiling fires, because "it went silent" is not
+        actionable and "over density 71% vs 35%, 14 on cooldown" is.
+        """
+        reasons = []
+        if density_capped:
+            reasons.append(
+                f"over density {density * 100:.0f}% vs {self.density_target() * 100:.0f}%"
+            )
+        if blocked:
+            reasons.append(f"{blocked} on cooldown")
+        if not reasons:
+            reasons.append("no template matched the market")
+        return ", ".join(reasons)
 
     # -- internals ----------------------------------------------------------
 

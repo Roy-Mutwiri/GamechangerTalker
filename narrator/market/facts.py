@@ -121,6 +121,13 @@ from narrator.market.trades import TRADE_FACTS  # noqa: E402
 
 FACT_FORMATS.update(TRADE_FACTS)
 
+# What the room is doing. Absent unless [audience] is on, so every template
+# using one is gated on `gift_pending` or `audience_waiting` and simply never
+# fires otherwise.
+from narrator.audience import AUDIENCE_FACTS  # noqa: E402
+
+FACT_FORMATS.update(AUDIENCE_FACTS)
+
 # Spoken names for the string facts, used by the renderer.
 LEVEL_SPOKEN = {
     "pdh": "yesterday's high",

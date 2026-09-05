@@ -1,0 +1,50 @@
+[
+  {
+    "id": "audience.gift_thanks",
+    "category": "audience",
+    "priority": 4,
+    "when": "gift_pending",
+    "cooldown": 8,
+    "max_per_session": 200,
+    "notes": "Said immediately, without waiting for the model. Somebody paid for that; a thank-you that arrives forty seconds later has already been noticed as being ignored. Priority 4 so it beats ordinary chat and loses to a level breaking at 5.",
+    "variants": [
+      "{gift_user}, thank you — that's very kind.",
+      "Oh, {gift_user} sent {gift_name}. Thank you.",
+      "Thanks {gift_user}. Appreciated.",
+      "{gift_user} with {gift_name} — thank you, genuinely.",
+      "That's {gift_user}. Thank you very much.",
+      "Cheers {gift_user}, thank you.",
+      "Thank you {gift_user}. Noted and appreciated.",
+      "{gift_user} — thanks for that."
+    ]
+  },
+  {
+    "id": "audience.gift_thanks_quiet",
+    "category": "audience",
+    "priority": 4,
+    "when": "gift_pending and minutes_since_move > 8",
+    "cooldown": 20,
+    "max_per_session": 60,
+    "notes": "The same thank-you with room to breathe, for when nothing is happening and there is time to say more than four words.",
+    "variants": [
+      "{gift_user} sent {gift_name} — thank you. Nice of you, especially while it's this quiet.",
+      "Thank you {gift_user}. Not much happening to reward you with, but thank you.",
+      "{gift_user}, thanks for that. Sitting here watching a flat line is better with company."
+    ]
+  },
+  {
+    "id": "audience.welcome",
+    "category": "audience",
+    "priority": 2,
+    "when": "audience_waiting > 0 and stream_minutes > 3",
+    "cooldown": 300,
+    "max_per_session": 12,
+    "notes": "A general acknowledgement that people are there, for when the hosts have not managed one. Never names anybody: the model does that, with the name in front of it.",
+    "variants": [
+      "Good to see people in here, by the way.",
+      "Hello to everyone who's just arrived.",
+      "There are a few of you in the chat — hello.",
+      "Nice to have company for this one."
+    ]
+  }
+]

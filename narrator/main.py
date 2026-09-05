@@ -302,6 +302,35 @@ class Narrator:
         # Pending expression beats. Held so the event loop cannot collect
         # a task mid-flight; each removes itself when it fires.
         self._beat_tasks: set[asyncio.Task] = set()
+        # True while a thinking face is showing. Kept so the face is set
+        # once rather than every tick of the wait.
+        self._thinking = False
+        self.audience: Any = None
+        self._audience_tail: Any = None
+        if cfg.audience.enabled:
+            from narrator.audience import DEFAULT_BLOCKLIST, Audience, AudienceConfig
+
+            self.audience = Audience(
+                AudienceConfig(
+                    enabled=True,
+                    max_queue=cfg.audience.max_queue,
+                    max_per_turn=cfg.audience.max_per_turn,
+                    user_cooldown_seconds=cfg.audience.user_cooldown_seconds,
+                    max_comment_chars=cfg.audience.max_comment_chars,
+                    stale_after_seconds=cfg.audience.stale_after_seconds,
+                    # Added to the built-in list, never replacing it: an
+                    # operator adding one word should not switch the defaults
+                    # off without meaning to.
+                    blocklist=DEFAULT_BLOCKLIST
+                    + tuple(w.lower() for w in cfg.audience.blocklist),
+                ),
+                host_names=tuple(p.name for p in cfg.hosts.personas)
+                or ("Mo", "Ada"),
+            )
+            if cfg.audience.file:
+                from narrator.audience import JsonlTail
+
+                self._audience_tail = JsonlTail(str(cfg.path(cfg.audience.file)))
         self._chart_moved_at = 0.0
         self.rng = random.Random()
         # True once two characters are actually on stage. Until then the
@@ -486,7 +515,9 @@ class Narrator:
             # takes about a second to write and about eight to say, so the
             # model is never the thing anybody is waiting for.
             self._drive_chart()
+            self._poll_audience(facts)
             self.hosts.prime(facts, now, self._context(now, facts))
+            self._show_thinking(now)
 
             # One line at a time. While the mouth is busy nothing new is
             # chosen -- a line picked now and spoken in forty seconds would
@@ -543,6 +574,48 @@ class Narrator:
         since = (now - self._last_spoken_at).total_seconds() if self._last_spoken_at else 999.0
         return since >= self.cfg.hosts.reply_gap_seconds
 
+    def _poll_audience(self, facts: dict) -> None:
+        """Drain the file tail, and publish what the room is doing as facts.
+
+        The templates see `gift_pending`, `gift_user`, `gift_name` and
+        `audience_waiting`, so a thank-you is an ordinary human-authored line
+        chosen by the ordinary scheduler -- not a special case bolted onto the
+        speaking path. It also means the guard's shipped-template test covers
+        it like everything else.
+        """
+        if self.audience is None:
+            return
+        if self._audience_tail is not None:
+            for payload in self._audience_tail.poll():
+                self.audience.push_json(payload)
+
+        facts["audience_waiting"] = self.audience.waiting
+        gift = self.audience.pending_gifts[0] if self.audience.pending_gifts else None
+        facts["gift_pending"] = gift is not None
+        facts["gift_user"] = gift.user if gift else ""
+        facts["gift_name"] = gift.gift if gift else "that"
+
+    def _show_thinking(self, now: datetime) -> None:
+        """Put a thinking face on while a turn is still being written.
+
+        The gap between asking for a turn and getting one is the one moment
+        the illusion is most obviously mechanical: the pair simply stop. A
+        face that is visibly working is the difference between "waiting" and
+        "broken", and it costs one emote.
+
+        Cleared the instant a turn is ready, so it never outlives the wait it
+        was covering.
+        """
+        if not self.cfg.hosts.thinking_after_seconds:
+            return
+        waiting = self.hosts.waiting_for_seconds()
+        if waiting >= self.cfg.hosts.thinking_after_seconds and not self._thinking:
+            self._thinking = True
+            self.bridge.send_emote("bored", hold=2.5, channel="conversation")
+            if self.web is not None:
+                self.web.send_emote("thinking", 2.5, "writing a turn")
+        elif self._thinking and (waiting == 0.0 or self.hosts.has_ready_turn()):
+            self._thinking = False
     def _host_utterance(self, turn: Any, facts: dict) -> Utterance:
         from narrator.script import expression
 
@@ -672,6 +745,14 @@ class Narrator:
             # The whole track at once; the browser animates it on its own
             # clock, which is smoother than sixty messages a second.
             self.web.send_utterance(utterance.text, duration, frames)
+        if utterance.template_id.startswith("audience.gift") and self.audience:
+            # Consumed here rather than when the fact was published: a gift is
+            # owed exactly one thank-you, and `gift_pending` stays true until
+            # somebody actually says it. Without this the same gift is thanked
+            # on every slot that qualifies -- observed as thirteen thank-yous
+            # to one viewer in three minutes while the next gift was never
+            # reached at all.
+            self.audience.take_gift()
         self.stream.note_speech(now, duration)
         self._last_spoken_source = utterance.source
         self._last_stage_index = utterance.stage_index
@@ -946,6 +1027,14 @@ class Narrator:
         while the pair talk.
         """
         parts = [self.briefing.text(now, facts)]
+        if self.audience is not None:
+            # Taken here rather than in hosts.py so the events are consumed
+            # exactly once, by the turn that is about to be written. Reading
+            # them without consuming would put the same comment in front of
+            # the model on every turn until it fell out of the queue.
+            room = self.audience.block()
+            if room:
+                parts.append(room)
         if self.eyes is not None:
             seen = self.eyes.context(max_age=self.cfg.chart.max_age_seconds)
             if seen:
@@ -1317,7 +1406,22 @@ class Narrator:
             "avatar": self.capture.status() if self.capture is not None else "svg",
             "account": self._account_status(facts),
             "hosts": self.hosts.status(),
+            "brain": self._brain_status(),
+            "audience": self.audience.status() if self.audience else "off",
         }
+
+    def _brain_status(self) -> str:
+        """Backend, model and what is left of today's budget, in one field.
+
+        The three numbers an operator actually wants mid-stream: which brain,
+        how much of it is left, and how long until the next turn. Separate from
+        `hosts` because that one answers "is the conversation working" and this
+        one answers "will it still be working in an hour".
+        """
+        budget = self.hosts.budget_status()
+        if budget is None:
+            return self.hosts.backend.name
+        return budget.line()
 
     def _chart_status(self) -> str:
         """Eyes and hands, in one field, because they fail independently."""
