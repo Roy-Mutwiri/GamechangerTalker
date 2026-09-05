@@ -290,3 +290,42 @@ def test_two_seats_get_different_idle_schedules():
     b = run(right, 30.0, fps=30)[:, CH["EyeBlinkLeft"]]
     assert a.max() > 0.9 and b.max() > 0.9
     assert not np.allclose(a, b)
+
+
+def test_a_beat_can_still_move_the_mouth_mid_line():
+    """The mouth group is held across the mood layer, and the beat layer runs
+    AFTER that restore. The ordering is load-bearing rather than incidental:
+    move the beat above it and a laugh mid-sentence becomes a smile with a
+    closed jaw, which is a worse artefact than the one the hold prevents.
+    """
+    spans = phonemes.from_text(LINE, 3.0)
+    track = livelink.mouth_track(spans, 3.0, 60)
+
+    def speak(with_laugh: bool) -> np.ndarray:
+        face = compositor()
+        face.mouth.speak_track(track, started_at=0.0, fps=60)
+        face.mood.set("surprised", hold=3.0, at=0.0)
+        if with_laugh:
+            face.beat.fire("laugh", at=1.0)
+        return run(face, 3.0)
+
+    # Against the same line without the beat, so the phoneme mouth -- which is
+    # wide open in places anyway -- cannot be mistaken for the laugh.
+    plain = speak(False)[60:130, CH["JawOpen"]]
+    laughing = speak(True)[60:130, CH["JawOpen"]]
+    assert laughing.max() > plain.max() + 0.05, (
+        "the laugh did not reach the jaw: the beat layer is being run before "
+        "the mouth group is restored, so its mouth contribution is discarded"
+    )
+    assert speak(True)[60:130, CH["MouthSmileLeft"]].max() > 0.3
+
+
+def test_the_mood_owns_the_whole_face_in_silence():
+    """The hold is only while somebody is speaking. With the mouth at rest a
+    surprised face is allowed its dropped jaw, which is most of what makes it
+    read as surprise."""
+    face = compositor()
+    face.mood.set("surprised", hold=3.0, at=0.0)
+    frames = run(face, 2.0)
+    assert frames[:, CH["JawOpen"]].max() > 0.05
+    assert not face.mouth.speaking
