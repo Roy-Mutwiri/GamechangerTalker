@@ -184,3 +184,14 @@ mypy>=1.11
 #   Warudo             0.15.0        (node typeIds in WARUDO_SETUP.md are its)
 #   MetaTrader 5       terminal running and logged in; symbol auto-detected
 # ===========================================================================
+
+# A provider account and API key, for the hosted two-host brain.  OPTIONAL.
+#   ~0 MB     nothing to install; one environment variable
+#   Only if [hosts] backend is openrouter / openai / groq / together / azure /
+#   anthropic.  The default backend is ollama, which is local and free, and the
+#   stream runs with no brain at all -- the template library covers.
+#   The key is read from the environment, never from config.toml, because that
+#   file is the one most likely to be screenshotted on stream.
+#   See BRAIN.md.
+#
+#   NOTE: GitHub Models was retired on 2026-07-30 and is no longer an option.

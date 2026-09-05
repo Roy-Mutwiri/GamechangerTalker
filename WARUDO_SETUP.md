@@ -799,3 +799,52 @@ python -m narrator.main --list-devices
 ```
 
 then set `audio.device` in `config.toml` to the index or the name.
+
+
+---
+
+## Expression beats (`gesture_*`)
+
+The hosts can write a one-shot beat into a turn — `[nod]`, `[eyebrow]`,
+`[lean-in]` — and it arrives as its own WebSocket action, timed to land on the
+word it was written against.
+
+They are optional. Without these nodes the beats simply do nothing: the mood
+still shows on the face, the laughs and sighs are still in the audio, and
+nothing breaks. Add the ones you want.
+
+One **On WebSocket Action** node per beat, exactly as the visemes are wired,
+because Warudo has no JSON-parsing node and cannot unpack a name and a value
+out of a single message:
+
+| Action | Suggested reaction |
+|---|---|
+| `gesture_nod` | Blend Shape or bone animation: head pitch down ~6°, back, over 0.4 s |
+| `gesture_headshake` | head yaw ±5°, twice, over 0.5 s |
+| `gesture_wink` | the model's `Blink_L` (or `Wink`) blendshape, 0.15 s |
+| `gesture_eyebrow` | one brow up — `Surprised` at ~0.3 for 0.6 s reads well on a stock VRM |
+| `gesture_lean_in` | move the character 2–3 cm toward the camera and back over 1.2 s |
+
+Each carries `"data": 1.0`, which you can ignore — it exists so the action has
+a payload at all.
+
+### Wiring one
+
+```
+On WebSocket Action  ("gesture_nod")
+  └─► Set Character Blend Shape / Play Animation
+        └─► Delay (0.4)
+              └─► return to neutral
+```
+
+The `Delay` matters: nothing sends a "stop" message, so a node that only sets
+a pose leaves the character stuck in it. Every beat must return itself.
+
+### Checking it
+
+```powershell
+python -m tools.audience_demo --dry-run    # what a busy minute looks like
+```
+
+then watch the Warudo log while the hosts talk. An action with no matching node
+logs `Received data but action is null` and is otherwise harmless.

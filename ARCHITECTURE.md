@@ -3,7 +3,13 @@
 The one-line version: **a narrator, not an analyst.** The operator writes
 every sentence; this system decides which of his sentences is appropriate
 right now, fills the numbers in, says it, and moves the avatar's mouth while
-it does. There is no language model anywhere in it, by design.
+it does.
+
+There is no language model in that core, by design. There is one beside it:
+the two-host conversation layer, which is optional, off by default, screened
+on every turn by `script/guard.py`, and which falls through to the library on
+any failure. The library is what the stream is; the hosts are what it sounds
+like between the things worth announcing.
 
 ```
   MetaTrader 5  ──►  MT5Adapter ─┐
@@ -12,7 +18,16 @@ it does. There is no language model anywhere in it, by design.
                                            │                              ▼
                                       ~46 facts                       Renderer
                                     (pure functions)                      │
-                                                                          ▼
+                                                                          │
+   audience ──► Audience ──┐                                              │
+   (HTTP/JSONL)  filter    │                                              │
+                           ▼                                              │
+                    HostConversation ──► guard ──► expression.parse ──────┤
+                           │                              │               │
+                    BudgetedBackend                  mood + beats         │
+                           │                                              │
+                    OpenAICompatClient                                    │
+                    / Ollama / Anthropic                                  ▼
                                                                    SpeechEngine
                                                                     (Kokoro)
                                                     ┌─────────────────┼─────────────┐
@@ -87,9 +102,15 @@ complexity actually is: `hosts.py` and `main.py` are half the codebase.
 | **script** | | |
 | `script/conditions.py` | the `when` DSL | `ast.parse` + whitelist walk, never `eval()` |
 | `script/library.py` | load, validate, hot-reload templates | errors name file + id + bad reference |
-| `script/scheduler.py` | cooldowns, priority, recency, pacing, bridges | where "alive vs robotic" is decided |
+| `script/scheduler.py` | cooldowns, priority, recency, pacing, bridges | where "alive vs robotic" is decided; `max_silence_seconds` is the hard floor under dead air |
 | `script/render.py` | slot filling | re-capitalises sentence starts after substitution |
 | `script/hosts.py` | the two-host conversation | one turn ahead of the microphone; every turn screened |
+| `script/expression.py` | the tags the model writes for its own face | one vocabulary, and the prompt section is generated from it so the two cannot drift |
+| `audience.py` | the chat, and what the hosts may hear of it | mostly refusal: links, handles and numbers never reach a prompt |
+| **llm** | | |
+| `llm/base.py` | the two-method Backend interface | lives here so the budget can wrap one without importing hosts.py |
+| `llm/openai_compat.py` | one chat completion, any OpenAI-compatible endpoint | typed failures, so the conversation stops substring-matching an SDK's error text |
+| `llm/budget.py` | how many turns a night, and when | paces rather than caps; the one module below main.py allowed a real clock, because a provider's day is a real UTC day |
 | `script/topics.py` | what the hosts have to talk about | kernels carry their own facts, so history is retold and never invented |
 | `script/briefing.py` | what the hosts know beyond this second's price | digested into sentences: a model handed 200 OHLC rows quotes one at random |
 | `script/story.py` | what has happened, and what was already said about it | two ledgers, so "third time we've tested this" is possible at all |

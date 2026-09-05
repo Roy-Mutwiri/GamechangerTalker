@@ -114,6 +114,23 @@ density_window_seconds = 600 # rolling window the density is measured over
 # the "Still watching." stream nobody stays on. 45s plus shorter cooldowns on
 # the content templates gets the same density with real lines filling it.
 bridge_after_seconds = 30.0
+# The hard ceiling on silence, in seconds. 0 turns it off.
+#
+# bridge_after_seconds above is a preference: it defers to the density cap and
+# to cooldowns, and it should. This does not. A paused brain, a quiet market
+# and a density cap are three independent reasons to say nothing, each of them
+# individually correct, and together they are exactly how a stream ends up
+# silent for half a minute with nothing in the log that looks like a fault.
+#
+# When it fires it names every reason the stream was about to stay quiet, so
+# the question becomes "why did the library have nothing" rather than "why did
+# it go quiet". Cooldowns and per-session caps still apply -- those are your
+# instructions about how often a line may be heard, and overriding them to
+# fill silence would let one bridge run all night.
+#
+# A count that climbs over a stream means the library is running dry, not that
+# the ceiling is doing its job. tools/soak.py asserts against this number.
+max_silence_seconds = 12.0
 default_cooldown = 300       # used when a template omits "cooldown"
 default_max_per_session = 20 # used when a template omits "max_per_session"
 recent_memory = 12           # how many recent template ids bias selection away
@@ -358,6 +375,14 @@ turn_taking_sounds = true
 # stand out. Some handovers going back to a plain gap is the honest trade,
 # because an audible tic is worse than an audible pause.
 turn_taking_chance = 0.45
+# Silence before the avatar visibly starts thinking, in seconds. 0 is off.
+#
+# The gap between asking for a turn and getting one is the moment the illusion
+# is most obviously mechanical: the pair simply stop. A face that is visibly
+# working is the difference between "waiting" and "broken", and it costs one
+# emote. Short, because a hosted model answers in one to four seconds and a
+# thinking face that only appeared after five would never be seen.
+thinking_after_seconds = 1.5
 # Fraction of speaking slots the conversation takes while podcast mode is on.
 # Podcast mode is meant to BE the two of them talking, so this is high: the
 # library is no longer a co-presenter, it is an interrupt.
@@ -643,3 +668,51 @@ require_warudo = false       # warn only; the stream survives a dead avatar
 # can catch by ear. A wrong avatar is visible and a wrong voice is audible;
 # a July price read out in October sounds exactly like today's.
 require_realtime = true
+
+
+# ---------------------------------------------------------------------------
+# The room
+#
+# Off by default. A stream with no ingestion process running loses nothing by
+# leaving it off, and turning it on with nothing feeding it is a queue that
+# stays empty rather than an error.
+#
+# Two ways in, one queue:
+#
+#   POST /audience   on the web UI's port, JSON:
+#                    {"kind": "comment", "user": "Amina", "text": "why?"}
+#                    kinds: comment | gift | follow | join
+#   file             a JSONL file a separate process appends to, one event per
+#                    line -- because your TikTok ingestion is its own program
+#                    and should not have to import this codebase to say that
+#                    somebody said hello
+#
+# Everything arriving here is untrusted text from strangers going into a prompt
+# on a live microphone. The filtering is not optional and cannot be configured
+# away: links, @handles, phone numbers and email addresses are ALWAYS dropped,
+# because a host reading another channel's name out loud is the single worst
+# thing this feature could produce, and it is exactly what a spammer is aiming
+# for. The guard in narrator/script/guard.py still screens whatever the hosts
+# then write about any of it.
+#
+# Watch it work without a live room:
+#   python -m tools.audience_demo            # a realistic minute
+#   python -m tools.audience_demo --spam     # everything that must be refused
+# ---------------------------------------------------------------------------
+[audience]
+enabled = false
+# Leave blank to use the HTTP endpoint only.
+file = ""
+max_queue = 200
+# How many events reach the model in one turn. Two is enough to react to the
+# room; more and the turn becomes a reading of the chat.
+max_per_turn = 2
+# One loud viewer must not dominate. Gifts bypass this: somebody who paid twice
+# in a minute has earned being noticed twice.
+user_cooldown_seconds = 45.0
+max_comment_chars = 160
+# A comment from four minutes ago reaches the microphone as a non sequitur, and
+# the room has moved on from it.
+stale_after_seconds = 120.0
+# Added to the built-in list, never replacing it.
+blocklist = []

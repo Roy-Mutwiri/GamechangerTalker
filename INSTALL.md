@@ -121,3 +121,49 @@ Output is `dist\GamechangerTalkerSetup.exe`.
 `setup.ps1` reads the model names out of `config.toml` rather than hardcoding
 them, so changing the model in config does not leave every new machine pulling
 the old one.
+
+
+---
+
+## Optional: a hosted brain
+
+The two-host conversation runs on a local Ollama model by default, which needs
+no account and no key. To use a hosted one instead:
+
+1. Create an API key with your provider. OpenRouter is the closest thing to
+   what GitHub Models used to be — one key, many publishers, a free tier, and
+   `publisher/model` ids.
+
+2. Put it in the environment, **not** in `config.toml`. That file is the one
+   most likely to end up on screen during a stream.
+
+   ```powershell
+   setx OPENROUTER_API_KEY "sk-or-..."
+   ```
+
+   Then open a new shell: `setx` does not affect the one you typed it in.
+
+3. Point the config at it:
+
+   ```toml
+   [hosts]
+   backend = "openrouter"
+   model = "openai/gpt-4o-mini"
+   ```
+
+4. Check it before you need it:
+
+   ```powershell
+   python -m tools.brain_check
+   ```
+
+   One real turn through the real prompt, with latency, tokens, the budget it
+   spent and a measured `timeout_seconds` recommendation. A non-zero exit code
+   means it will not work tonight either.
+
+`python -m tools.brain_check --providers` lists every provider this narrator
+knows and which of them have a key set on this machine.
+
+See [BRAIN.md](BRAIN.md) for what a free tier's daily cap means for a six-hour
+stream, and what the audience hears when any of it fails. (Short version:
+nothing. The template library covers.)

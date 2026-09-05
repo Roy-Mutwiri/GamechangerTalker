@@ -12,8 +12,17 @@ does.
 
 It does not decide what to say. A human author writes every sentence as a
 template; the system fills in live numbers and chooses *when* each line is
-appropriate. **There is no LLM anywhere in this pipeline**, by design. The
-relationship is audiobook narrator to author, not analyst to market.
+appropriate. The relationship is audiobook narrator to author, not analyst to
+market.
+
+**The narrator core has no language model**, by design, and never will. There
+is one above it: the optional two-host conversation in `narrator/script/hosts.py`
+is written by a model, and every turn it produces is screened by
+`narrator/script/guard.py` before it can reach a microphone. The library owns
+everything time-critical and factual — a level breaking, a fill, a session
+opening — and the hosts own the space between those. Turn `[hosts]` off and
+what remains is exactly the deterministic narrator described below. See
+[BRAIN.md](BRAIN.md).
 
 It never generates trade recommendations, entries, stops or targets. Those
 appear only if the operator typed them into the override channel or wrote them
@@ -655,9 +664,66 @@ anything resembling a trade instruction (`buy`, `go long`, `stop loss`,
 
 ---
 
+## The brain
+
+The two-host conversation needs a model. Three kinds work, and the choice is
+one word in `config.toml`:
+
+```toml
+[hosts]
+enabled = true
+backend = "ollama"          # free, local, unmetered — the default
+# backend = "openrouter"    # hosted; needs OPENROUTER_API_KEY
+model = "qwen2.5:14b-instruct-q4_K_M"
+```
+
+**The key never goes in `config.toml`.** That file is the one most likely to be
+screenshotted on stream. It comes from the provider's own environment variable:
+
+```powershell
+setx OPENROUTER_API_KEY "sk-or-..."
+```
+
+A free tier gives you something like 150 requests a day, and a stream speaks
+every few seconds. Capping at 150 would give you twenty brilliant minutes and
+five silent hours, so the budget **paces** instead: remaining requests spread
+over remaining stream time, which on 150/day over six hours is a host turn
+about every three minutes, with the template library filling every gap exactly
+as it does when the brain is off.
+
+> **GitHub Models was retired on 30 July 2026** — API, catalog and BYOK.
+> `backend = "github"` still resolves and tells you so, rather than failing at
+> DNS. OpenRouter takes the same `publisher/model` ids, so switching is one
+> word.
+
+Full detail — every backend compared, the budget arithmetic worked through, and
+a table of what the audience hears when each thing breaks — is in
+**[BRAIN.md](BRAIN.md)**.
+
+### Before every stream
+
+```powershell
+python -m tools.brain_check         # one real turn, through the real prompt
+python -m tools.soak --minutes 30   # 30 minutes, and assert nothing broke
+```
+
+`soak` drives the real application in replay and fails on an ERROR record, on
+silence past `max_silence_seconds`, on anything spoken with a bracket in it, or
+on an uncaught exception. It needs neither a key nor a GPU:
+
+```powershell
+python -m tools.soak --minutes 30 --fake-brain --silent
+```
+
+---
+
 ## Design constraints worth not forgetting
 
-* **No LLM.** If a requirement seems to need one, it has been misread.
+* **No LLM in the narrator core.** The library, the scheduler and the
+  renderer are deterministic and stay that way. The hosts layer above them is
+  written by a model and is screened on every turn; it is optional, off by
+  default, and the stream runs without it. If a requirement seems to need a
+  model *inside* the core, it has been misread.
 * **No signal generation.** The system never invents entries, stops or targets.
 * **The stream survives everything.** MT5 disconnect, Warudo disconnect, a
   malformed template, a TTS failure, a market gap, a weekend. Log and continue.
