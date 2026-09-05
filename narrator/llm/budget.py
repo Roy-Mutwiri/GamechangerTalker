@@ -197,6 +197,16 @@ class RateBudget:
             )
             self.counters = _Counters(day=today, model=self.model)
             self._exhausted_logged = False
+            # The pace, and any pause, were computed against a budget that no
+            # longer exists. Leaving them set means the quota comes back at
+            # midnight and the hosts stay silent anyway, for up to a whole
+            # interval that was derived from an empty allowance -- which on a
+            # stream running across the boundary is the exact moment nobody is
+            # watching the logs.
+            self._next_allowed_at = 0.0
+            self._paused_until = 0.0
+            self._paused_reason = ""
+            self._backoff = BACKOFF_START_S
             self._save()
 
     # -- the pace -----------------------------------------------------------
@@ -238,7 +248,15 @@ class RateBudget:
             return 0.0
         spendable = self._remaining_spendable()
         if spendable <= 0:
-            return float("inf")
+            # The spendable allowance is gone, but the day is not: the reserve
+            # is still there and the counters roll at the UTC boundary. So the
+            # wait is "until the day resets", never infinity.
+            #
+            # It used to return inf, which became BudgetWait(inf), which became
+            # `_paused_until = monotonic() + inf` in the conversation -- and
+            # that is a pause nothing can ever lift, not even the day rolling
+            # over. The hosts went quiet for the rest of the process.
+            return self._resets_in()
         paced = self._stream_seconds_left() / spendable
         # Never faster than the per-minute bucket allows, whatever the daily
         # arithmetic says.

@@ -423,3 +423,42 @@ async def test_the_wrapper_is_transparent():
     assert backend.name == "fake"
     assert backend.ready() == ""
     assert backend.status().limit_today >= UNLIMITED
+
+
+def test_an_exhausted_allowance_waits_for_the_reset_not_forever():
+    """The bug a demo run found. interval() returned inf once the spendable
+    allowance was gone, which became BudgetWait(inf), which became
+    `_paused_until = monotonic() + inf` in the conversation -- a pause nothing
+    could lift, not even the UTC day rolling over. The hosts went silent for
+    the rest of the process."""
+    clock = Clock()
+    b = budget(clock, requests_per_day=10, stream_hours=1.0, reserve_fraction=0.2)
+    for _ in range(8):
+        b.note_success()
+
+    assert b.interval() != float("inf")
+    assert b.interval() == pytest.approx(b._resets_in())
+
+    with pytest.raises(BudgetWait) as waited:
+        b.check()
+    assert waited.value.seconds < 86400.0
+
+    # The reserve is still there, and the day still rolls.
+    assert b.remaining() == 2
+    clock.tick(24 * 3600)
+    assert b.remaining() == 10
+    b.check()
+
+
+def test_the_hosts_recover_after_the_day_rolls():
+    """End to end through the conversation's own pause bookkeeping."""
+    clock = Clock()
+    b = budget(clock, requests_per_day=4, stream_hours=1.0, reserve_fraction=0.0)
+    for _ in range(4):
+        b.note_success()
+    with pytest.raises(BudgetExhausted) as spent:
+        b.check()
+    assert spent.value.resets_in_s < 86400.0
+
+    clock.tick(spent.value.resets_in_s + 1)
+    b.check()  # a new day; must not raise
