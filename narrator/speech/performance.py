@@ -112,6 +112,12 @@ _CLAUSE = re.compile("(?<=[,;:.!?—–])\\s+")  # noqa: RUF001 -- both dashes, 
 # voice says the word out loud.
 _ACT = r"laugh(?:s|ing)?|chuckl(?:e|es|ing)|giggl(?:e|es|ing)|snicker(?:s|ing)?|snort(?:s|ing)?"
 
+# The expression layer writes "(sighs)" where the model put [sigh]. Without
+# its own pattern it falls through to the speech engine and the voice reads the
+# stage direction out loud -- the exact failure the laugh markers exist to
+# prevent, and one that only shows up when a model finally uses the tag.
+_SIGH = re.compile(r"\s*[(\[*]+\s*sighs?(?:\s+\w+)?\s*[)\]*]+", re.I)
+
 _LAUGH = re.compile(
     r"\s*("
     # A stage direction, however it is bracketed, with or without its adverb.
@@ -192,9 +198,14 @@ def plan(
     if len(text.split()) >= BREATH_MIN_WORDS and rng.random() < BREATH_CHANCE:
         beats.append(Beat(kind="in", pause_after=0.05))
 
-    for segment, laughing in _split_laughs(text):
-        if laughing:
+    for segment, sound in _split_sounds(text):
+        if sound == "chuckle":
             beats.append(Beat(kind="chuckle", pause_after=0.12))
+            continue
+        if sound == "sigh":
+            # Out, not in: a sigh is the breath leaving, and the existing
+            # "in" beat is the one taken before a long run of sentences.
+            beats.append(Beat(kind="out", pause_after=0.18))
             continue
         clauses = [c for c in _CLAUSE.split(segment.strip()) if c.strip()]
         if not clauses:
@@ -225,29 +236,43 @@ def plan(
     return tuple(beats)
 
 
-def _split_laughs(text: str) -> list[tuple[str, bool]]:
-    """Text split around laughter markers, each flagged as one or not."""
-    out: list[tuple[str, bool]] = []
+def _split_sounds(text: str) -> list[tuple[str, str]]:
+    """Text split around the non-speech markers, each labelled with its kind.
+
+    `""` is speech; `"chuckle"` and `"sigh"` are sounds to synthesise in the
+    host's own voice rather than words to read.
+    """
+    marks: list[tuple[int, int, str]] = [
+        (m.start(), m.end(), "chuckle") for m in _LAUGH.finditer(text)
+    ]
+    marks += [(m.start(), m.end(), "sigh") for m in _SIGH.finditer(text)]
+    marks.sort()
+
+    out: list[tuple[str, str]] = []
     cursor = 0
-    for match in _LAUGH.finditer(text):
-        before = text[cursor : match.start()]
+    for start, end, kind in marks:
+        # Overlapping markers cannot both be honoured; the first one wins.
+        if start < cursor:
+            continue
+        before = text[cursor:start]
         if before.strip():
-            out.append((before, False))
-        out.append((match.group(0), True))
-        cursor = match.end()
+            out.append((before, ""))
+        out.append((text[start:end], kind))
+        cursor = end
     tail = text[cursor:]
     if tail.strip():
-        out.append((tail, False))
-    return out or [(text, False)]
+        out.append((tail, ""))
+    return out or [(text, "")]
 
 
 def spoken_text(text: str) -> str:
     """The line with laughter markers removed, for the transcript and the log.
 
     The audience hears a laugh; the transcript should not read "*laughs*", and
-    the phoneme pipeline must never be handed one.
+    the phoneme pipeline must never be handed one. The same goes for a sigh.
     """
-    return re.sub(r"\s{2,}", " ", _LAUGH.sub(" ", text)).strip()
+    stripped = _SIGH.sub(" ", _LAUGH.sub(" ", text))
+    return re.sub(r"\s{2,}", " ", stripped).strip()
 
 
 def punctuate(text: str, emote: str | None) -> str:

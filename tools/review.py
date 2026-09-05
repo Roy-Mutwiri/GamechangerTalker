@@ -188,6 +188,82 @@ def review(conn: sqlite3.Connection, run_id: str, out: list[str]) -> None:
         emit("```")
 
 
+def expression_report(conn: sqlite3.Connection, run_id: str, out: list[str]) -> None:
+    """How the face behaved, which is not visible from the transcript.
+
+    A streamer whose face is "excited" eighty percent of the time is a tell,
+    and so is one that never moves. Neither shows up when you read the words,
+    which is the whole reason this report exists.
+    """
+
+    def emit(line: str = "") -> None:
+        print(line)
+        out.append(line)
+
+    have = {row[1] for row in conn.execute("PRAGMA table_info(lines)")}
+    if "mood" not in have:
+        emit("  (this transcript predates expression logging)")
+        return
+
+    rows = conn.execute(
+        "SELECT market_time, mood, beats, unknown_tags FROM lines"
+        " WHERE run_id = ? AND source = 'host' ORDER BY id",
+        (run_id,),
+    ).fetchall()
+    if not rows:
+        emit("  no host turns in this run")
+        return
+
+    total = len(rows)
+    moods: dict[str, int] = {}
+    beats: dict[str, int] = {}
+    unknown = 0
+    longest_run = 0
+    current_run = 0
+    previous = None
+
+    for row in rows:
+        mood = row["mood"] or "(none)"
+        moods[mood] = moods.get(mood, 0) + 1
+        for beat in (row["beats"] or "").split(","):
+            if beat:
+                beats[beat] = beats.get(beat, 0) + 1
+        unknown += int(row["unknown_tags"] or 0)
+
+        # A long run of the same mood is the specific thing that reads as
+        # stuck, and an average hides it completely.
+        if mood == previous:
+            current_run += 1
+        else:
+            current_run = 1
+            previous = mood
+        longest_run = max(longest_run, current_run)
+
+    emit(f"  {total} host turns")
+    emit("")
+    emit("  MOOD")
+    for mood, count in sorted(moods.items(), key=lambda kv: -kv[1]):
+        share = count / total
+        flag = "  <-- dominant" if share > 0.5 and mood != "(none)" else ""
+        emit(f"    {mood:<12} {bar(share)} {count:>4} ({share:.0%}){flag}")
+
+    emit("")
+    emit("  BEATS")
+    if beats:
+        for beat, count in sorted(beats.items(), key=lambda kv: -kv[1]):
+            emit(f"    {beat:<12} {count:>4}   ({count / total * 100:.1f} per 100 turns)")
+    else:
+        emit("    none -- the pair never laughed, nodded or moved")
+
+    emit("")
+    emit(f"  longest run of one mood: {longest_run} turns in a row")
+    if longest_run >= 8:
+        emit("    ^ that reads as a face that is stuck rather than reacting")
+    if unknown:
+        emit(f"  tags the model invented and had thrown away: {unknown}")
+        emit("    ^ worth reading the prompt section again; it is being ignored")
+
+
 def _library_ids() -> set[str]:
     try:
         cfg = load_config(project_root() / "config.toml")
@@ -206,6 +282,11 @@ def main() -> None:
     ap.add_argument("--runs", action="store_true", help="list runs and exit")
     ap.add_argument("--db", help="path to the transcript database")
     ap.add_argument("--export", help="also write the report to a markdown file")
+    ap.add_argument(
+        "--emotes",
+        action="store_true",
+        help="how the face behaved: mood distribution, beats, invented tags",
+    )
     args = ap.parse_args()
 
     cfg = load_config(project_root() / "config.toml")
@@ -226,7 +307,14 @@ def main() -> None:
         run_id = row["run_id"]
 
     out: list[str] = []
-    review(conn, run_id, out)
+    if args.emotes:
+        header = f"# Expression: {run_id}"
+        print(header)
+        print()
+        out += [header, ""]
+        expression_report(conn, run_id, out)
+    else:
+        review(conn, run_id, out)
     conn.close()
 
     if args.export:

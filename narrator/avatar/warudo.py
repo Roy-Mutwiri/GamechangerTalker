@@ -40,6 +40,11 @@ log = logging.getLogger(__name__)
 
 QUEUE_LIMIT = 8  # ~130ms of 60fps frames; beyond that, drop
 
+# Conversational moods arrive per line, so the market debounce would
+# swallow all but the first. Two seconds is enough to stop two emotes
+# landing on the same frame and short enough to keep up with speech.
+CONVERSATION_EMOTE_SPACING = 2.0
+
 
 class WarudoBridge:
     def __init__(self, cfg: Config, *, enabled: bool = True) -> None:
@@ -51,6 +56,13 @@ class WarudoBridge:
         self.frames_by_slot = [0, 0]
         self.frames_dropped = 0
         self.emotes_sent = 0
+        self.gestures_sent = 0
+        # Emotes the channel rules dropped. Counted rather than logged: at
+        # one a turn this would be the loudest thing in the log.
+        self.emotes_suppressed = 0
+        self._last_emote_at: dict[str, float] = {}
+        # While a line is being spoken, the conversation owns the face.
+        self._speaking_until = 0.0
         self.reconnects = 0
         self.last_error = ""
         self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=QUEUE_LIMIT)
@@ -328,19 +340,66 @@ class WarudoBridge:
             return mapping[1]
         return name
 
-    def send_emote(self, name: str, hold: float = 1.5) -> None:
+    def send_emote(
+        self, name: str, hold: float = 1.5, *, channel: str = "market"
+    ) -> None:
         """One action carrying the expression name the model actually has.
 
         `hold` is not sent: the blueprint releases the expression itself with
         a Delay node, because Warudo has no way to unpack a second field out
         of the same message.
+
+        TWO CHANNELS, ONE OUTPUT
+        `market` emotes are reactions to events -- a level breaking, a session
+        opening -- and are debounced at emote_debounce_seconds (60s by
+        default) because they should be rare enough to mean something.
+
+        `conversation` emotes are the mood of the line currently being spoken,
+        so they arrive per turn and a sixty-second debounce would swallow all
+        but the first. They get a short minimum spacing instead.
+
+        The two share one output, so they cannot fight on the same frame:
+        while somebody is speaking, the conversation owns the face; in silence,
+        the market does. Without that rule a level breaking mid-sentence would
+        put a surprised face on a host who is calmly explaining something else.
         """
+        now = time.monotonic()
+        spacing = (
+            CONVERSATION_EMOTE_SPACING
+            if channel == "conversation"
+            else self.cfg.warudo.emote_debounce_seconds
+        )
+        if channel == "conversation":
+            self._speaking_until = now + max(0.0, hold)
+        elif now < self._speaking_until:
+            # A market emote arriving mid-line loses to the line being spoken.
+            self.emotes_suppressed += 1
+            return
+
+        if now - self._last_emote_at.get(channel, -1e9) < spacing:
+            self.emotes_suppressed += 1
+            return
+        self._last_emote_at[channel] = now
+
         self.send(
             {
                 "action": self.cfg.warudo.emote_action,
                 "data": self.expression_for(name),
             }
         )
+
+    def send_gesture(self, beat: str) -> None:
+        """A movement with no sound -- a nod, a raised eyebrow, a lean in.
+
+        Its own action per beat (`gesture_nod`, `gesture_lean_in`), matched by
+        its own On WebSocket Action node, for the same reason the visemes are:
+        Warudo has no JSON-parsing node, so one message cannot carry a name and
+        a value that a blueprint could unpack. See WARUDO_SETUP.md.
+        """
+        from narrator.script.expression import gesture_action
+
+        self.send({"action": gesture_action(beat), "data": 1.0})
+        self.gestures_sent += 1
 
     # -- the viseme pump ----------------------------------------------------
 

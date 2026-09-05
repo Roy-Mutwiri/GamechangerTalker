@@ -340,6 +340,14 @@ class WebUI:
     def send_emote(self, name: str, hold: float, reason: str = "") -> None:
         self.broadcast({"type": "emote", "name": name, "hold": hold, "reason": reason})
 
+    def send_gesture(self, name: str) -> None:
+        """A one-shot expression beat -- a nod, a raised eyebrow, a lean in.
+
+        Separate from an emote because it is a moment rather than a state: the
+        browser face plays it and returns, where an emote is held.
+        """
+        self.broadcast({"type": "gesture", "name": name})
+
     def send_note(self, text: str) -> None:
         self.broadcast({"type": "note", "text": text})
 

@@ -65,6 +65,15 @@ class Utterance:
     facts: dict[str, Any] = field(default_factory=dict)
     chosen_at: datetime | None = None
     estimated_seconds: float = 0.0
+    # One-shot expression beats the model placed in the line -- a laugh, a nod
+    # -- each carrying the word index it belongs to. Only the host layer sets
+    # these; a template has no opinion about the speaker's eyebrows.
+    beats: list[Any] = field(default_factory=list)
+    # The model's own word for the mood, before it was mapped onto an
+    # emote. Kept for the transcript: 'thinking' and 'serious' both map to
+    # neutral on a stock VRM, and a report that could not tell them apart
+    # would hide exactly the thing it exists to show.
+    mood: str = ""
 
 
 @dataclass

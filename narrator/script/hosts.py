@@ -33,7 +33,7 @@ import random
 import re
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -57,6 +57,7 @@ from narrator.llm.openai_compat import (
     resolve_preset,
     validate_model_id,
 )
+from narrator.script import expression
 from narrator.script.guard import screen
 from narrator.script.topics import Seed, TopicPicker
 from narrator.speech.normalize import collapse_whitespace
@@ -303,6 +304,8 @@ part and keep the shape.
 presenting to them.
 - If it genuinely does not fit what is being discussed, ignore it. A forced \
 segue is worse than a missed lesson.
+
+{expression}
 """
 
 
@@ -312,6 +315,10 @@ class Turn:
     name: str
     text: str
     at: datetime
+    # What the model asked the face to do. `text` has already had the tags
+    # taken off -- these are what they said.
+    mood: str | None = None
+    beats: list[expression.Beat] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -704,6 +711,13 @@ class HostConversation:
         self.narration_drops = 0
         self.opener_repeats = 0
         self.emoji_drops = 0
+        # Expression telemetry. A model that steadily invents tags, or is
+        # 'excited' eighty percent of the time, is a tell -- and neither is
+        # visible without counting.
+        self.unknown_tags = 0
+        self.extra_moods = 0
+        self.empty_after_tags = 0
+        self.moods_used: dict[str, int] = {}
         # How each host has been starting their turns lately, so the same
         # opening cannot run for a hundred turns unnoticed. Per speaker: they
         # have different habits and one must not censor the other's.
@@ -924,7 +938,9 @@ class HostConversation:
     ) -> Turn | None:
         speaker = self.personas[self.next_speaker]
         system = SYSTEM_PROMPT.format(
-            personas=self._persona_block(), speaker=speaker.name
+            personas=self._persona_block(),
+            speaker=speaker.name,
+            expression=expression.prompt_section(),
         )
         user = self._user_block(facts, context, speaker)
 
@@ -995,6 +1011,24 @@ class HostConversation:
 
         raw = (raw or "").strip()
         if not raw:
+            return None
+
+        # Tags come off FIRST. The guard, the transcript, the opener memory and
+        # the speech engine must all see the words the audience will hear --
+        # a turn screened with "[serious]" still on the front is being screened
+        # against text nobody says.
+        marked = expression.parse(raw)
+        if marked.unknown:
+            self.unknown_tags += len(marked.unknown)
+            log.debug(
+                "%s invented %s", speaker.name, ", ".join(f"[{t}]" for t in marked.unknown)
+            )
+        if marked.extra_moods:
+            self.extra_moods += len(marked.extra_moods)
+        raw = marked.clean_text
+        if not raw:
+            # The model wrote nothing but tags. There is no line here.
+            self.empty_after_tags += 1
             return None
 
         # Models drift into script format however firmly you ask them not to.
@@ -1068,7 +1102,16 @@ class HostConversation:
         # had its say -- recording the raw text would remember an opening the
         # audience never hears.
         self._openers[speaker.key].append(opener_key(safe))
-        return Turn(speaker=speaker.key, name=speaker.name, text=safe, at=now)
+        if marked.mood:
+            self.moods_used[marked.mood] = self.moods_used.get(marked.mood, 0) + 1
+        return Turn(
+            speaker=speaker.key,
+            name=speaker.name,
+            text=safe,
+            at=now,
+            mood=marked.mood,
+            beats=list(marked.beats),
+        )
 
     def _persona_block(self) -> str:
         return "\n".join(

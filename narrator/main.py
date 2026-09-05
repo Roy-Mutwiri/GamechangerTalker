@@ -299,6 +299,9 @@ class Narrator:
         # What the chart was last made to do, so the hosts can be told about it
         # once and not every turn for the next ten minutes.
         self._chart_note = ""
+        # Pending expression beats. Held so the event loop cannot collect
+        # a task mid-flight; each removes itself when it fires.
+        self._beat_tasks: set[asyncio.Task] = set()
         self._chart_moved_at = 0.0
         self.rng = random.Random()
         # True once two characters are actually on stage. Until then the
@@ -541,12 +544,28 @@ class Narrator:
         return since >= self.cfg.hosts.reply_gap_seconds
 
     def _host_utterance(self, turn: Any, facts: dict) -> Utterance:
+        from narrator.script import expression
+
         persona = self.hosts.personas[turn.speaker]
+        mood = getattr(turn, "mood", None)
+        beats = list(getattr(turn, "beats", []) or [])
+        # A [laugh], [chuckle] or [sigh] goes back into the text as the markup
+        # speech/performance.py already turns into a real sound at that
+        # position. Reusing that path rather than adding a second one is what
+        # keeps a single answer to "how is a laugh made" -- and it means the
+        # transcript still reads clean, because spoken_text strips it again.
+        text = expression.with_sound_beats(turn.text, beats)
         return Utterance(
-            text=normalize_text(turn.text),
+            text=normalize_text(text),
             template_id=f"host.{persona.name.lower()}",
             priority=1,
             source="host",
+            # The model's own mood for this line, mapped onto an emote the
+            # avatar layer already knows how to draw. None when it wrote no
+            # tag, which is most turns and is meant to be.
+            emote=expression.MOOD_TO_EMOTE.get(mood) if mood else None,
+            beats=beats,
+            mood=mood or "",
             voice=persona.voice,
             avatar=persona.avatar,
             # Everything the library says comes out of slot 0 by default, so
@@ -625,7 +644,14 @@ class Narrator:
             )
 
         if utterance.emote:
-            self.bridge.send_emote(utterance.emote, hold=min(2.5, duration))
+            # A host's mood belongs to the line being spoken and arrives once a
+            # turn; a template's emote is a reaction to a market event and is
+            # debounced for a minute. Same output, different rules -- see
+            # WarudoBridge.send_emote.
+            channel = "conversation" if utterance.source == "host" else "market"
+            self.bridge.send_emote(
+                utterance.emote, hold=min(2.5, duration), channel=channel
+            )
             if self.web is not None:
                 self.web.send_emote(utterance.emote, min(2.5, duration))
 
@@ -663,8 +689,13 @@ class Narrator:
             emote=utterance.emote,
             facts=utterance.facts,
             dry_run=self.dry_run,
+            mood=utterance.mood or None,
+            beats=",".join(b.name for b in utterance.beats),
+            unknown_tags=0,
         )
 
+        if utterance.beats:
+            self._schedule_beats(utterance, speech, duration, started_at)
         if frames and self.bridge.enabled:
             await self.bridge.play(frames, started_at)
         if played:
@@ -803,6 +834,43 @@ class Narrator:
         if frames and self.bridge.enabled:
             await self.bridge.play(frames, started_at)
         await self.playback.wait()
+
+    def _schedule_beats(self, utterance, speech, duration: float, started_at: float) -> None:
+        """Fire each beat at the word it was written against.
+
+        On the same `started_at` clock the visemes use, never a separate timer:
+        a nod half a second adrift from the word it belongs to reads as the
+        character reacting to something else. Sound beats are not here -- those
+        were folded into the audio by performance.deliver before synthesis, so
+        they are already in the waveform at the right moment.
+        """
+        from narrator.script import expression
+
+        spans = getattr(speech, "spans", None) or []
+        words = max(1, len(utterance.text.split()))
+
+        for beat in utterance.beats:
+            if not getattr(beat, "is_gesture", False):
+                continue
+            at = expression.beat_time(beat, spans, duration, words)
+            task = asyncio.create_task(self._fire_beat(beat.name, started_at + at))
+            # Held so the loop does not garbage-collect a pending task, and
+            # discarded on completion so a twelve-hour stream does not
+            # accumulate one reference per nod.
+            self._beat_tasks.add(task)
+            task.add_done_callback(self._beat_tasks.discard)
+
+    async def _fire_beat(self, name: str, at: float) -> None:
+        """One gesture, at its moment. Never raises into the speaking loop."""
+        delay = at - time.perf_counter()
+        if delay > 0:
+            await asyncio.sleep(delay)
+        try:
+            self.bridge.send_gesture(name)
+            if self.web is not None:
+                self.web.send_gesture(name)
+        except Exception as exc:  # a nod is never worth losing a line over
+            log.debug("beat %s failed: %s", name, exc)
 
     def _viseme_frames(self, speech, text: str, duration: float):
         try:

@@ -30,6 +30,11 @@ CREATE TABLE IF NOT EXISTS lines (
     priority     INTEGER NOT NULL,
     text         TEXT    NOT NULL,
     emote        TEXT,
+    -- What the model asked the face to do. Nullable, because the library
+    -- writes most of these rows and has no opinion about eyebrows.
+    mood         TEXT,
+    beats        TEXT,              -- comma separated, e.g. "chuckle,nod"
+    unknown_tags INTEGER NOT NULL DEFAULT 0,
     dry_run      INTEGER NOT NULL DEFAULT 0,
     facts        TEXT    NOT NULL    -- json snapshot at the moment of speaking
 );
@@ -66,6 +71,7 @@ class SpeechLog:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.executescript(SCHEMA)
+            self._migrate()
             self._conn.execute(
                 "INSERT OR REPLACE INTO runs (run_id, started_at, symbol, mode, config)"
                 " VALUES (?, ?, ?, ?, ?)",
@@ -85,6 +91,25 @@ class SpeechLog:
             log.error("could not open the transcript log at %s: %s", self.path, exc)
             self._conn = None
 
+    def _migrate(self) -> None:
+        """Add columns a database made by an older build does not have.
+
+        ALTER TABLE ADD COLUMN, not a rebuild: the transcript is the record of
+        every stream that has ever run and is not worth risking to add three
+        nullable fields. Old rows keep their NULLs and read back fine.
+        """
+        if self._conn is None:
+            return
+        have = {row[1] for row in self._conn.execute("PRAGMA table_info(lines)")}
+        for column, ddl in (
+            ("mood", "TEXT"),
+            ("beats", "TEXT"),
+            ("unknown_tags", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if column not in have:
+                self._conn.execute(f"ALTER TABLE lines ADD COLUMN {column} {ddl}")
+        self._conn.commit()
+
     def write(
         self,
         *,
@@ -96,14 +121,18 @@ class SpeechLog:
         emote: str | None,
         facts: dict[str, Any],
         dry_run: bool,
+        mood: str | None = None,
+        beats: str = "",
+        unknown_tags: int = 0,
     ) -> None:
         if self._conn is None:
             return
         try:
             self._conn.execute(
                 "INSERT INTO lines (run_id, market_time, wall_time, template_id,"
-                " source, priority, text, emote, dry_run, facts)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " source, priority, text, emote, mood, beats, unknown_tags,"
+                " dry_run, facts)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     self.run_id,
                     market_time.isoformat(),
@@ -113,6 +142,9 @@ class SpeechLog:
                     priority,
                     text,
                     emote,
+                    mood,
+                    beats,
+                    int(unknown_tags),
                     int(dry_run),
                     json.dumps(_jsonable(facts), default=str),
                 ),
