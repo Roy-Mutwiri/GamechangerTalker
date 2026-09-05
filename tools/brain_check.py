@@ -86,16 +86,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def show_providers() -> int:
     print("Providers this narrator knows about:\n")
     for preset in PRESETS.values():
-        state = "RETIRED" if preset.retired else (
-            "key set" if os.environ.get(preset.token_env, "") else "no key"
+        state = (
+            "RETIRED"
+            if preset.retired
+            else ("key set" if os.environ.get(preset.token_env, "") else "no key")
         )
         print(f"  {preset.key:<11} {state:<8} {preset.base_url or '(set base_url)'}")
         if preset.retired:
             print(f"              {preset.retired}")
         elif preset.notes:
             print(f"              {preset.notes}")
-        print(f"              key from ${preset.token_env}, e.g. model "
-              f"{preset.example_model!r}")
+        print(
+            f"              key from ${preset.token_env}, e.g. model "
+            f"{preset.example_model!r}"
+        )
     print("\n  ollama       local, free, unmetered")
     print("  anthropic    hosted, needs ANTHROPIC_API_KEY")
     return 0
@@ -193,9 +197,15 @@ async def run(args: argparse.Namespace) -> int:
             print(f"FAIL  {exc.__class__.__name__}: {exc}")
             if isinstance(exc, AuthError) and preset is not None:
                 print(f"      Check ${preset.token_env}.")
-            if isinstance(exc, BadRequest) and preset is not None and preset.publisher_ids:
-                print(f"      This provider wants 'publisher/model', e.g. "
-                      f"{preset.example_model!r}.")
+            if (
+                isinstance(exc, BadRequest)
+                and preset is not None
+                and preset.publisher_ids
+            ):
+                print(
+                    f"      This provider wants 'publisher/model', e.g. "
+                    f"{preset.example_model!r}."
+                )
             return 1
         except LLMError as exc:
             print(f"FAIL  {exc}")
@@ -213,8 +223,10 @@ async def run(args: argparse.Namespace) -> int:
         return 0
 
     print()
-    print(f"latency   {min(latencies):.2f}s min, {max(latencies):.2f}s max, "
-          f"{sum(latencies) / len(latencies):.2f}s mean")
+    print(
+        f"latency   {min(latencies):.2f}s min, {max(latencies):.2f}s max, "
+        f"{sum(latencies) / len(latencies):.2f}s mean"
+    )
 
     budget = getattr(backend, "status", lambda: None)()
     if budget is not None:
