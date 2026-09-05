@@ -32,17 +32,22 @@ Moving any of it into a Blueprint would mean two implementations of "when does
 this character blink", one of them untestable and both of them wrong within a
 month.
 
-The layers stack in one order and it matters:
+WHAT IS HERE, AND WHAT IS IN face.py
+------------------------------------
+This module owns the things that are true regardless of what the character is
+doing: the wire format, the socket, the mouth track built from phoneme spans,
+and the idle layer -- blinking, saccades, head drift, breath -- which runs
+whether or not anybody is speaking.
 
-    idle          always running: blinks, saccades, head drift, breath
-    mouth         replaces the mouth group while a line is being spoken
-    mood          added on top, eased in and decayed out
-    beat          crossfaded over the top for its window
+`avatar/face.py` owns everything with an opinion about what the face should be
+doing right now: the mouth that is speaking, the mood it is speaking in, and
+the beat landing on a particular word. It imports this module; this module
+must never import it, or the dependency becomes a cycle.
 
-Every layer returns the same preallocated 61-vector and does its arithmetic in
-place. At 60 fps against a 16.7 ms frame budget, on a loop that already
-measured a 12-19 ms GC pause, allocating a list of 61 floats per layer per
-frame is not something to find out about later.
+Everything in both allocates nothing per frame -- layers write in place into
+one preallocated 61-vector. At 60 fps against a 16.7 ms budget, on a loop that
+already measured a 12-19 ms GC pause, a list of 61 floats per layer per frame
+is not something to find out about later.
 """
 
 from __future__ import annotations
@@ -55,11 +60,10 @@ import socket
 import struct
 import time
 from dataclasses import dataclass
+from typing import Any, Protocol
 
 import numpy as np
 
-from narrator.avatar.channels import ChannelArbiter
-from narrator.script import expression
 from narrator.speech import arkit, visemes
 
 log = logging.getLogger(__name__)
@@ -672,543 +676,23 @@ def mouth_track(spans: list, duration: float, fps: int = 60) -> np.ndarray:
     return track
 
 
-class MouthLayer:
-    """The thirteen ARKit mouth channels, read out of a precomputed track.
-
-    Silent outside an utterance, and the compositor *replaces* the mouth group
-    with it rather than adding: an idle jaw and a speaking jaw summing would
-    produce a mouth wider than either was asked for.
-    """
-
-    def __init__(self) -> None:
-        self._track: np.ndarray | None = None
-        self._started_at = 0.0
-        self._fps = 60
-        self._out = np.zeros(MOUTH_COUNT, dtype=np.float32)
-
-    def begin(self, track: np.ndarray, started_at: float, fps: int = 60) -> None:
-        self._track = track
-        self._started_at = started_at
-        self._fps = max(1, fps)
-
-    def end(self) -> None:
-        self._track = None
-
-    @property
-    def active(self) -> bool:
-        return self._track is not None
-
-    def frame(self, t: float) -> np.ndarray | None:
-        """The mouth at absolute time `t`, or None when nothing is being said."""
-        track = self._track
-        if track is None:
-            return None
-        index = int((t - self._started_at) * self._fps)
-        if index < 0:
-            return None
-        self._out[:] = track[min(index, len(track) - 1)]
-        return self._out
-
-
-# ---------------------------------------------------------------------------
-# The mood
-# ---------------------------------------------------------------------------
-
-#: mood -> additive ARKit offsets, overridable per mood under
-#: `[character.moods]`.
-#:
-#: Deliberately small. An expression that reads clearly in a still frame is a
-#: caricature in motion, and what carries a mood on a real face is how long it
-#: lasts rather than how far it travels.
-MOOD_OFFSETS: dict[str, dict[str, float]] = {
-    "neutral": {},
-    "happy": {
-        "MouthSmileLeft": 0.35,
-        "MouthSmileRight": 0.35,
-        "CheekSquintLeft": 0.20,
-        "CheekSquintRight": 0.20,
-        "EyeSquintLeft": 0.15,
-        "EyeSquintRight": 0.15,
-    },
-    "excited": {
-        "MouthSmileLeft": 0.35,
-        "MouthSmileRight": 0.35,
-        "CheekSquintLeft": 0.20,
-        "CheekSquintRight": 0.20,
-        "EyeSquintLeft": 0.15,
-        "EyeSquintRight": 0.15,
-        "BrowInnerUp": 0.25,
-        "EyeWideLeft": 0.20,
-        "EyeWideRight": 0.20,
-    },
-    "surprised": {
-        "BrowInnerUp": 0.60,
-        "BrowOuterUpLeft": 0.40,
-        "BrowOuterUpRight": 0.40,
-        "EyeWideLeft": 0.40,
-        "EyeWideRight": 0.40,
-        "JawOpen": 0.10,
-    },
-    "serious": {
-        "BrowDownLeft": 0.25,
-        "BrowDownRight": 0.25,
-        "MouthPressLeft": 0.15,
-        "MouthPressRight": 0.15,
-    },
-    "thinking": {
-        "BrowInnerUp": 0.20,
-        "EyeLookUpLeft": 0.15,
-        "EyeLookUpRight": 0.15,
-        "HeadRoll": 4.0,
-    },
-    "concerned": {
-        "BrowInnerUp": 0.35,
-        "BrowDownLeft": 0.10,
-        "BrowDownRight": 0.10,
-        "MouthFrownLeft": 0.15,
-        "MouthFrownRight": 0.15,
-    },
-    "bored": {
-        "EyeSquintLeft": 0.10,
-        "EyeSquintRight": 0.10,
-        "MouthPressLeft": 0.10,
-        "MouthPressRight": 0.10,
-        "HeadPitch": -2.0,
-    },
-}
-
-MOOD_EASE_IN_S = 0.30
-#: How long until half of a mood is gone, once the line it belonged to ended.
-#: A mood that outlives its line reads as a character who is stuck.
-MOOD_HALF_LIFE_S = 4.0
-#: A market reaction is not this character's mood -- it is a reaction to an
-#: event -- so it arrives quieter, and only when nobody is speaking.
-MARKET_INTENSITY = 0.5
-
-
-def compile_offsets(
-    overrides: dict[str, dict[str, float]] | None = None,
-) -> dict[str, np.ndarray]:
-    """The mood table as 61-vectors, with the operator's overrides folded in.
-
-    An unknown mood or channel is an error here rather than a silently ignored
-    key, for the same reason a template referring to an undeclared fact is: the
-    moment it fails is the moment somebody can still fix it.
-    """
-    known = set(expression.MOODS)
-    table = {name: dict(values) for name, values in MOOD_OFFSETS.items()}
-    for mood, values in (overrides or {}).items():
-        if mood not in known:
-            raise ValueError(
-                f"[character.moods] has {mood!r}, which is not a mood "
-                f"expression.py knows ({', '.join(sorted(known))})"
-            )
-        for channel in values:
-            if channel.lower() not in INDEX_CI:
-                raise ValueError(
-                    f"[character.moods.{mood}] has {channel!r}, "
-                    "which is not a Live Link Face channel"
-                )
-        table.setdefault(mood, {}).update(values)
-
-    compiled: dict[str, np.ndarray] = {}
-    for mood, values in table.items():
-        vector = blank()
-        for channel, amount in values.items():
-            vector[index_of(channel)] = amount
-        compiled[mood] = vector
-    return compiled
-
-
-class MoodLayer:
-    """One sustained expression at a time, eased in and decayed out.
-
-    Two channels feed it and share one output, exactly as the Warudo bridge's
-    emotes do -- through the same `ChannelArbiter`, not a second copy of the
-    rule. The conversation owns the face while somebody is speaking; the
-    market owns it in silence, at half intensity.
-    """
-
-    def __init__(
-        self,
-        offsets: dict[str, np.ndarray] | None = None,
-        arbiter: ChannelArbiter | None = None,
-    ) -> None:
-        self.offsets = offsets if offsets is not None else compile_offsets()
-        self.arbiter = arbiter or ChannelArbiter()
-        self._out = blank()
-        self._mood = "neutral"
-        self._intensity = 0.0
-        self._began_at = 0.0
-        self._released_at: float | None = None
-        self._release_level = 0.0
-
-    def set(
-        self,
-        mood: str,
-        at: float,
-        *,
-        intensity: float = 1.0,
-        channel: str = "conversation",
-        hold: float = 1.5,
-    ) -> bool:
-        """Ask for a mood. False if the channel rules refused it."""
-        if mood not in self.offsets:
-            return False
-        if not self.arbiter.allow(channel, at, hold=hold):
-            return False
-        self._mood = mood
-        self._intensity = max(
-            0.0, min(1.0, intensity * (MARKET_INTENSITY if channel == "market" else 1.0))
-        )
-        self._began_at = at
-        self._released_at = None
-        return True
-
-    def release(self, at: float) -> None:
-        """The line ended; start the decay from wherever the ramp had got to."""
-        if self._released_at is None:
-            self._release_level = self._level(at)
-            self._released_at = at
-
-    def _level(self, t: float) -> float:
-        if self._intensity <= 0.0:
-            return 0.0
-        if self._released_at is None:
-            ramp = min(1.0, max(0.0, (t - self._began_at) / MOOD_EASE_IN_S))
-            # Smoothstep: a linear ramp on an expression reads as a wipe.
-            return self._intensity * ramp * ramp * (3.0 - 2.0 * ramp)
-        elapsed = max(0.0, t - self._released_at)
-        return self._release_level * 0.5 ** (elapsed / MOOD_HALF_LIFE_S)
-
-    def frame(self, t: float) -> np.ndarray:
-        out = self._out
-        level = self._level(t)
-        if level <= 0.001:
-            out.fill(0.0)
-            return out
-        np.multiply(self.offsets[self._mood], level, out=out)
-        return out
-
-    @property
-    def mood(self) -> str:
-        return self._mood
-
-
-# ---------------------------------------------------------------------------
-# Beats
-# ---------------------------------------------------------------------------
-
-CLIP_FPS = 60
-#: In and out of a beat. Long enough that a nod does not start as a jerk,
-#: short enough that a 220 ms wink is still a wink.
-BEAT_FADE_S = 0.15
-#: Beats that are the mouth. While one of these is running it owns the mouth
-#: group; every other beat leaves the mouth to whatever is being said, because
-#: a nod mid-sentence must not shut the character's jaw.
-MOUTH_OWNING_BEATS = frozenset({"laugh", "chuckle", "sigh"})
-
-
-@dataclass(frozen=True)
-class Clip:
-    """A short face animation: N frames of 61 values, at a known rate."""
-
-    name: str
-    fps: int
-    frames: np.ndarray
-
-    @property
-    def duration(self) -> float:
-        return len(self.frames) / max(1, self.fps)
-
-    def sample(self, local: float) -> np.ndarray:
-        """The frame at `local` seconds in, clamped at both ends."""
-        index = int(local * self.fps)
-        return self.frames[max(0, min(index, len(self.frames) - 1))]
-
-
-def _clip(seconds: float) -> tuple[np.ndarray, int]:
-    """An empty clip of the right length, and its frame count."""
-    count = max(1, round(seconds * CLIP_FPS))
-    return np.zeros((count, CHANNEL_COUNT), dtype=np.float32), count
-
-
-def _nod(seconds: float = 0.6) -> Clip:
-    """Down, a little past level on the way back, then still."""
-    frames, count = _clip(seconds)
-    pitch = INDEX["HeadPitch"]
-    for i in range(count):
-        u = i / max(1, count - 1)
-        if u < 0.45:
-            frames[i, pitch] = 8.0 * math.sin(math.pi * (u / 0.45) * 0.5)
-        else:
-            back = (u - 0.45) / 0.55
-            frames[i, pitch] = 8.0 * (1 - back) - 3.0 * math.sin(math.pi * back)
-    return Clip("nod", CLIP_FPS, frames)
-
-
-def _headshake(seconds: float = 0.7) -> Clip:
-    """Two cycles, tapering, because a shake that ends abruptly reads as a
-    glitch rather than as disagreement."""
-    frames, count = _clip(seconds)
-    yaw = INDEX["HeadYaw"]
-    for i in range(count):
-        u = i / max(1, count - 1)
-        frames[i, yaw] = 7.0 * math.sin(math.tau * 2.0 * u) * (1.0 - u * 0.4)
-    return Clip("headshake", CLIP_FPS, frames)
-
-
-def _wink(seconds: float = 0.22) -> Clip:
-    """One eye, and the smile that makes it a wink rather than a blink."""
-    frames, count = _clip(seconds)
-    for i in range(count):
-        u = i / max(1, count - 1)
-        shut = math.sin(math.pi * u) ** 0.6
-        frames[i, INDEX["EyeBlinkLeft"]] = shut
-        frames[i, INDEX["MouthSmileLeft"]] = 0.2 * shut
-        frames[i, INDEX["CheekSquintLeft"]] = 0.25 * shut
-    return Clip("wink", CLIP_FPS, frames)
-
-
-def _eyebrow(seconds: float = 0.4) -> Clip:
-    """Up, held, down. The asymmetry is what makes it scepticism rather than
-    surprise, so the outer brows are not raised equally."""
-    frames, count = _clip(seconds)
-    for i in range(count):
-        u = i / max(1, count - 1)
-        up = math.sin(math.pi * u) ** 0.5
-        frames[i, INDEX["BrowInnerUp"]] = 0.7 * up
-        frames[i, INDEX["BrowOuterUpLeft"]] = 0.7 * up
-        frames[i, INDEX["BrowOuterUpRight"]] = 0.35 * up
-    return Clip("eyebrow", CLIP_FPS, frames)
-
-
-def _sigh(seconds: float = 0.55) -> Clip:
-    """Slow open, slow release, over the length of the breath beat that caused
-    it. Longer than any other beat here, because a sigh that is over quickly is
-    not a sigh."""
-    frames, count = _clip(seconds)
-    for i in range(count):
-        u = i / max(1, count - 1)
-        amount = math.sin(math.pi * u) ** 0.8
-        frames[i, INDEX["JawOpen"]] = 0.15 * amount
-        frames[i, INDEX["MouthFunnel"]] = 0.10 * amount
-        frames[i, INDEX["HeadPitch"]] = 3.0 * amount
-        frames[i, INDEX["BrowInnerUp"]] = 0.15 * amount
-    return Clip("sigh", CLIP_FPS, frames)
-
-
-def _lean_in(seconds: float = 0.5) -> Clip:
-    """The face half of it. The body half is a `PlayGesture` sent at the same
-    instant -- see `avatar/unreal.py`."""
-    frames, count = _clip(seconds)
-    for i in range(count):
-        u = i / max(1, count - 1)
-        amount = math.sin(math.pi * u) ** 0.5
-        frames[i, INDEX["HeadPitch"]] = 4.0 * amount
-        frames[i, INDEX["EyeWideLeft"]] = 0.12 * amount
-        frames[i, INDEX["EyeWideRight"]] = 0.12 * amount
-    return Clip("lean-in", CLIP_FPS, frames)
-
-
-def _laugh(seconds: float = 0.9, name: str = "laugh") -> Clip:
-    """Air interrupted by the glottis at four or five hertz -- the same shape
-    `performance.chuckle` synthesises, because they are the same event.
-
-    The jaw bobs rather than opening once, and the head drops on each pulse.
-    A laugh where only the mouth moves reads as a mouth opening.
-    """
-    frames, count = _clip(seconds)
-    rate = 4.5
-    for i in range(count):
-        u = i / max(1, count - 1)
-        t = u * seconds
-        envelope = math.sin(math.pi * u) ** 0.7
-        pulse = 0.5 + 0.5 * math.sin(math.tau * rate * t)
-        frames[i, INDEX["JawOpen"]] = (0.25 + 0.15 * pulse) * envelope
-        frames[i, INDEX["MouthSmileLeft"]] = 0.5 * envelope
-        frames[i, INDEX["MouthSmileRight"]] = 0.5 * envelope
-        frames[i, INDEX["CheekSquintLeft"]] = 0.4 * envelope
-        frames[i, INDEX["CheekSquintRight"]] = 0.4 * envelope
-        frames[i, INDEX["EyeSquintLeft"]] = 0.35 * envelope
-        frames[i, INDEX["EyeSquintRight"]] = 0.35 * envelope
-        frames[i, INDEX["HeadPitch"]] = -4.0 * envelope * pulse
-    return Clip(name, CLIP_FPS, frames)
-
-
-#: A procedural clip for every beat `expression.py` defines, so the system is
-#: complete with no recordings at all. `test_character_layers.py` fails when
-#: somebody adds a beat and not a clip.
-CLIP_BUILDERS: dict[str, object] = {
-    "nod": _nod,
-    "headshake": _headshake,
-    "wink": _wink,
-    "eyebrow": _eyebrow,
-    "sigh": _sigh,
-    "lean-in": _lean_in,
-    "laugh": _laugh,
-    "chuckle": lambda seconds=0.55: _laugh(seconds, "chuckle"),
-}
-
-
-def procedural_clip(name: str, seconds: float | None = None) -> Clip | None:
-    """One beat's face, built rather than recorded. None if there is no such beat."""
-    builder = CLIP_BUILDERS.get(name)
-    if builder is None:
-        return None
-    return builder(seconds) if seconds else builder()  # type: ignore[operator]
-
-
-@dataclass
-class _Active:
-    clip: Clip
-    at: float
-
-
-class BeatLayer:
-    """One-shot clips, crossfaded over whatever else the face is doing.
-
-    A beat is a moment, so it is placed on the same `started_at` clock the
-    visemes use and never on a timer of its own: a nod half a second adrift
-    from the word it belongs to reads as the character reacting to something
-    else entirely.
-
-    Recorded clips (`clips/<beat>.csv`) replace the procedural ones by name.
-    Nothing requires them -- every beat has a built one -- but a nod captured
-    off a real person is better than a nod described by a sine, and this is
-    where an operator's afternoon with Live Link Face gets used.
-    """
-
-    def __init__(self, clips: dict[str, Clip] | None = None) -> None:
-        self.clips: dict[str, Clip] = dict(clips or {})
-        self.fired = 0
-        self.unknown: list[str] = []
-        self._active: _Active | None = None
-        self._out = blank()
-
-    def clip_for(self, name: str, seconds: float | None = None) -> Clip | None:
-        recorded = self.clips.get(name)
-        if recorded is not None:
-            return recorded
-        return procedural_clip(name, seconds)
-
-    def trigger(self, name: str, at: float, seconds: float | None = None) -> bool:
-        """Start a beat at absolute time `at`. False if there is no such beat."""
-        clip = self.clip_for(name, seconds)
-        if clip is None:
-            if name not in self.unknown:
-                self.unknown.append(name)
-            return False
-        # One at a time, latest wins. Two beats crossfading into each other
-        # produces a face doing neither, and the model is told to write at
-        # most one per turn anyway.
-        self._active = _Active(clip=clip, at=at)
-        self.fired += 1
-        return True
-
-    def clear(self) -> None:
-        self._active = None
-
-    def frame(self, t: float) -> tuple[np.ndarray, float, bool]:
-        """(values, weight, owns_mouth). Weight 0 means nothing is running."""
-        active = self._active
-        if active is None:
-            return self._out, 0.0, False
-        local = t - active.at
-        span = active.clip.duration
-        if local < 0.0 or local > span:
-            if local > span:
-                self._active = None
-            return self._out, 0.0, False
-
-        # Fades scale down for a clip too short to hold two of them, so a
-        # 220 ms wink still reaches full weight instead of being a bump.
-        fade = min(BEAT_FADE_S, span / 3.0)
-        if local < fade:
-            weight = local / fade
-        elif local > span - fade:
-            weight = (span - local) / fade
-        else:
-            weight = 1.0
-        self._out[:] = active.clip.sample(local)
-        return (
-            self._out,
-            max(0.0, min(1.0, weight)),
-            active.clip.name in MOUTH_OWNING_BEATS,
-        )
-
-
-# ---------------------------------------------------------------------------
-# The compositor
-# ---------------------------------------------------------------------------
-
-
-class Compositor:
-    """One character's face: four layers, one 61-vector, no allocation.
-
-    The order is the whole design and it is worth stating plainly:
-
-        idle          always, so the face is never frozen
-        mouth         REPLACES the mouth group while a line is being spoken
-        mood          ADDED on top, so a smile survives the jaw moving
-        beat          CROSSFADED over the result for its window
-
-    A beat that is the mouth (a laugh, a sigh) takes the mouth group with it;
-    every other beat leaves the mouth alone, because a nod that shuts the jaw
-    mid-word is worse than no nod.
-    """
-
-    def __init__(
-        self,
-        seed: int = 7,
-        offsets: dict[str, np.ndarray] | None = None,
-        arbiter: ChannelArbiter | None = None,
-        clips: dict[str, Clip] | None = None,
-    ) -> None:
-        self.idle = IdleLayer(seed)
-        self.mouth = MouthLayer()
-        self.mood = MoodLayer(offsets, arbiter)
-        self.beats = BeatLayer(clips)
-        self._out = blank()
-        self._mouth_hold = np.zeros(MOUTH_COUNT, dtype=np.float32)
-        self._origin: float | None = None
-
-    def compose(self, t: float) -> np.ndarray:
-        """The face at absolute time `t`.
-
-        Returns the compositor's own buffer, not a copy -- that is the point
-        of the preallocation. It is valid until the next `compose`, which is
-        fine for a caller that sends it immediately and wrong for one that
-        collects frames in a list. Copy if you are keeping it.
-        """
-        if self._origin is None:
-            self._origin = t
-        out = self._out
-        out[:] = self.idle.frame(t - self._origin)
-
-        mouth = self.mouth.frame(t)
-        if mouth is not None:
-            out[MOUTH_INDICES] = mouth
-
-        out += self.mood.frame(t)
-
-        beat, weight, owns_mouth = self.beats.frame(t)
-        if weight > 0.0:
-            if not owns_mouth:
-                # Remember the mouth before the crossfade and put it back
-                # after, so a nod cannot close a mouth that is mid-word.
-                self._mouth_hold[:] = out[MOUTH_INDICES]
-            out *= 1.0 - weight
-            out += beat * weight
-            if not owns_mouth:
-                out[MOUTH_INDICES] = self._mouth_hold
-
-        return clamp(out)
-
-
 # ---------------------------------------------------------------------------
 # The tick
 # ---------------------------------------------------------------------------
+
+
+class Face(Protocol):
+    """What the loop needs of a character's face, and nothing more.
+
+    Structural on purpose: the implementation is `face.FaceCompositor`, and
+    naming it here would make this module import the one that imports it.
+    The loop does not care what the layers are -- it needs 61 numbers for a
+    moment, and a way to say the line has ended.
+    """
+
+    def frame(self, t: float, now: float | None = None) -> np.ndarray: ...
+
+    def rest(self) -> np.ndarray: ...
 
 
 class CharacterLoop:
@@ -1237,25 +721,34 @@ class CharacterLoop:
     def __init__(
         self,
         sender: LiveLinkFaceSender,
-        compositors: dict[str, Compositor],
+        faces: dict[str, Face],
         fps: int = 60,
-        clock: object = time.perf_counter,
+        clock: Any = time.perf_counter,
     ) -> None:
         self.sender = sender
-        self.compositors = compositors
+        self.faces = faces
         self.fps = max(1, int(fps))
         self.clock = clock
         self.ticks = 0
         self.running = False
+        self._started_at: float | None = None
         self._stop = False
         self._frames: dict[str, np.ndarray] = {}
 
     def tick(self, now: float) -> None:
-        """Compose and send one frame for every subject. Never raises."""
+        """Compose and send one frame for every subject. Never raises.
+
+        A composition that blows up sends a neutral face rather than nothing.
+        A frozen face is how an audience is told the thing has crashed, and a
+        traceback in one layer is not a reason to tell them that.
+        """
+        if self._started_at is None:
+            self._started_at = now
+        elapsed = now - self._started_at
         self._frames.clear()
-        for subject, compositor in self.compositors.items():
+        for subject, face in self.faces.items():
             try:
-                self._frames[subject] = compositor.compose(now)
+                self._frames[subject] = face.frame(elapsed, now)
             except Exception:
                 log.exception("face composition failed for %s", subject)
                 self._frames[subject] = blank()
@@ -1269,20 +762,20 @@ class CharacterLoop:
         interval = 1.0 / self.fps
         self.running = True
         self._stop = False
-        deadline = self.clock() + interval  # type: ignore[operator]
+        deadline = self.clock() + interval
         try:
             while not self._stop:
-                now = self.clock()  # type: ignore[operator]
+                now = self.clock()
                 self.tick(now)
 
                 deadline += interval
-                wait = deadline - self.clock()  # type: ignore[operator]
+                wait = deadline - self.clock()
                 if wait < -interval:
                     # More than a frame overdue. Skip to the next deadline
                     # rather than firing the missed frames back to back.
                     skipped = int(-wait / interval)
                     self.sender.note_late(skipped)
-                    deadline = self.clock() + interval  # type: ignore[operator]
+                    deadline = self.clock() + interval
                     wait = interval
                 if wait > 0:
                     await asyncio.sleep(wait)

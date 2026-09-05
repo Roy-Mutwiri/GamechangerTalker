@@ -29,7 +29,7 @@ import math
 import sys
 import time
 
-from narrator.avatar import livelink
+from narrator.avatar import face, livelink
 from narrator.config import load_config, project_root
 
 
@@ -62,14 +62,14 @@ def main(argv: list[str] | None = None) -> int:
     fps = args.fps or character.fps
 
     try:
-        offsets = livelink.compile_offsets(character.moods)
-    except ValueError as exc:
+        moods = face.merge_moods(character.moods)
+    except KeyError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return 2
 
-    if args.mood and args.mood not in offsets:
+    if args.mood and args.mood not in moods:
         print(
-            f"unknown mood {args.mood!r}; known: {', '.join(sorted(offsets))}",
+            f"unknown mood {args.mood!r}; known: {', '.join(sorted(moods))}",
             file=sys.stderr,
         )
         return 2
@@ -79,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"cannot open a UDP socket: {sender.last_error}", file=sys.stderr)
         return 1
 
-    compositor = livelink.Compositor(seed=character.seed, offsets=offsets)
+    composed = face.FaceCompositor(subject, seed=character.seed, moods=moods)
     print(f"sending to {host}:{port} as subject {subject!r} at {fps} fps")
     print("  UDP has no acknowledgement: these are frames SENT, not received.")
     if args.mood:
@@ -99,15 +99,15 @@ def main(argv: list[str] | None = None) -> int:
             if args.seconds and elapsed >= args.seconds:
                 break
 
-            if args.mood:
-                # Re-set every tick so it never decays; this is a held pose to
-                # look at, not a line being delivered.
-                compositor.mood.set(args.mood, now, hold=10.0)
+            if args.mood and composed.mood.name != args.mood:
+                # Set once and left to hold: this is a pose to look at, not a
+                # line being delivered.
+                composed.mood.set(args.mood, hold=1e6)
             if (args.nod or args.laugh) and now >= next_beat:
-                compositor.beats.trigger("laugh" if args.laugh else "nod", now)
+                composed.beat.fire("laugh" if args.laugh else "nod", now)
                 next_beat = now + (3.0 if args.laugh else 2.0)
 
-            frame = compositor.compose(now)
+            frame = composed.frame(elapsed, now)
             if args.pulse:
                 # Overwritten after composition on purpose: the pulse is a
                 # measurement signal, not an expression, and it has to be
