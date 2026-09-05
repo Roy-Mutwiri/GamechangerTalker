@@ -345,6 +345,67 @@ class AvatarEntry(BaseModel):
         return self.label or self.file.rsplit(".", 1)[0].replace("_", " ")
 
 
+class LiveLinkConfig(BaseModel):
+    """Where the face goes. UDP, unacknowledged, fire and forget."""
+
+    host: str = "127.0.0.1"
+    # What the Live Link Face app uses, and what Unreal listens on once the
+    # Apple ARKit Face Support plugin is enabled.
+    port: int = 11111
+    # Must match the MetaHuman's Live Link subject setting exactly, case
+    # included: Unreal matches subjects by string and says nothing when it
+    # does not find one.
+    subject: str = "Presenter"
+    # The second seat in podcast mode. Each subject gets its own idle layer,
+    # so the pair do not blink in unison -- which reads as one puppet with two
+    # heads rather than as two people.
+    subject_2: str = "Presenter2"
+
+
+class UnrealBodyConfig(BaseModel):
+    """The body: posture, gestures, camera. Everything that is not the face."""
+
+    # remote_control | osc | none. Remote Control is HTTP and tells you when
+    # it failed; OSC is UDP and does not, but needs no object path.
+    transport: str = "remote_control"
+    remote_control_url: str = "http://127.0.0.1:30010"
+    # The presenter actor's path in the loaded level, e.g.
+    # "/Game/Maps/Studio.Studio:PersistentLevel.BP_Presenter_C_1". Per-level,
+    # so it can never be a constant in the code. Copy it out of Unreal --
+    # `python -m tools.unreal_check` prints the one it resolved.
+    object_path: str = ""
+    osc_host: str = "127.0.0.1"
+    osc_port: int = 8000
+
+
+class CharacterConfig(BaseModel):
+    """An Unreal MetaHuman as the on-screen character.
+
+    Off by default, and Warudo keeps working alongside it: both renderers
+    consume the same utterances, emotes and beats, so an operator can run the
+    pair side by side and decide which one the audience sees.
+
+    Nothing here can change what the audience *hears*. With `enabled = false`
+    none of it is constructed, and `--simulate` is byte-identical either way.
+    """
+
+    enabled: bool = False
+    fps: int = 60
+    # The idle layer's randomness. Fixed, so two runs being compared blink
+    # alike and a change in the head motion is a diff rather than a feeling.
+    seed: int = 7
+    # Optional recorded gesture clips, exported from the Live Link Face app.
+    # Procedural clips cover every beat without them; a recording is better
+    # than a sine wave, and this is where an operator's afternoon goes.
+    clips_dir: str = "clips"
+    livelink: LiveLinkConfig = Field(default_factory=LiveLinkConfig)
+    unreal: UnrealBodyConfig = Field(default_factory=UnrealBodyConfig)
+    # Additive ARKit offsets per mood, merged over the defaults in
+    # avatar/livelink.py. An unknown mood or channel is a load-time error
+    # naming both, the way a template referring to an unknown fact is.
+    moods: dict[str, dict[str, float]] = Field(default_factory=dict)
+
+
 class WarudoConfig(BaseModel):
     enabled: bool = True
     host: str = "127.0.0.1"
@@ -502,6 +563,7 @@ class Config(BaseModel):
     hosts: HostsConfig = Field(default_factory=HostsConfig)
     audience: AudienceConfigModel = Field(default_factory=AudienceConfigModel)
     warudo: WarudoConfig = Field(default_factory=WarudoConfig)
+    character: CharacterConfig = Field(default_factory=CharacterConfig)
     chart: ChartConfig = Field(default_factory=ChartConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     webui: WebUIConfig = Field(default_factory=WebUIConfig)

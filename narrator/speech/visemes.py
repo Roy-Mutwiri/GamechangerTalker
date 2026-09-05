@@ -126,6 +126,20 @@ CONSONANT_WEIGHT = 0.35
 LOOK_AHEAD_BIAS = 0.65
 NEUTRAL_VISEME = "ih"
 
+# How the mouth moves between targets, as time constants in seconds. Named
+# because there are now two renderers -- the five VRM visemes here and the
+# thirteen ARKit mouth channels in avatar/livelink.py -- and a mouth that
+# smooths differently depending on which avatar is on screen is a difference
+# the operator would have to discover by watching both.
+ATTACK_S = 0.04
+RELEASE_S = 0.04
+#: A closure snaps. /p/ /b/ /m/ are the lips meeting, not a shape fading.
+CLOSURE_S = 0.018
+#: Articulation leads audio: the lips are in position before the noise.
+LEAD_S = 0.05
+#: A little past the end, so the mouth is seen to close rather than vanish.
+TAIL_S = 0.08
+
 # Stress marks ride at the front of the segment they modify.
 PRIMARY_STRESS = "ˈ"
 SECONDARY_STRESS = "ˌ"
@@ -255,11 +269,11 @@ def stream(
     duration: float,
     *,
     fps: int = 60,
-    attack: float = 0.04,
-    release: float = 0.04,
-    closure: float = 0.018,
-    lead: float = 0.05,
-    tail: float = 0.08,
+    attack: float = ATTACK_S,
+    release: float = RELEASE_S,
+    closure: float = CLOSURE_S,
+    lead: float = LEAD_S,
+    tail: float = TAIL_S,
 ) -> list[VisemeFrame]:
     """The full 60fps frame stream for one utterance, ending on all zeros.
 

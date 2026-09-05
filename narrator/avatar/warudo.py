@@ -33,6 +33,7 @@ import math
 import time
 from typing import Any
 
+from narrator.avatar.channels import CONVERSATION_SPACING_S, ChannelArbiter
 from narrator.config import Config
 from narrator.speech.visemes import VisemeFrame, rest_frame
 
@@ -40,10 +41,11 @@ log = logging.getLogger(__name__)
 
 QUEUE_LIMIT = 8  # ~130ms of 60fps frames; beyond that, drop
 
-# Conversational moods arrive per line, so the market debounce would
-# swallow all but the first. Two seconds is enough to stop two emotes
-# landing on the same frame and short enough to keep up with speech.
-CONVERSATION_EMOTE_SPACING = 2.0
+# Kept as a name here because WARUDO_SETUP.md and the tests refer to it; the
+# rule itself moved to avatar/channels.py when the Live Link face needed the
+# same one. See ChannelArbiter for why the two channels cannot each have their
+# own copy.
+CONVERSATION_EMOTE_SPACING = CONVERSATION_SPACING_S
 
 
 class WarudoBridge:
@@ -57,12 +59,13 @@ class WarudoBridge:
         self.frames_dropped = 0
         self.emotes_sent = 0
         self.gestures_sent = 0
-        # Emotes the channel rules dropped. Counted rather than logged: at
-        # one a turn this would be the loudest thing in the log.
-        self.emotes_suppressed = 0
-        self._last_emote_at: dict[str, float] = {}
-        # While a line is being spoken, the conversation owns the face.
-        self._speaking_until = 0.0
+        # Who owns the face right now -- the line being spoken, or the market.
+        # One implementation, shared with the Live Link face, because two
+        # copies of an arbitration rule is two rules within a month.
+        self.channels = ChannelArbiter(
+            conversation_spacing=CONVERSATION_EMOTE_SPACING,
+            market_spacing=cfg.warudo.emote_debounce_seconds,
+        )
         self.reconnects = 0
         self.last_error = ""
         self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=QUEUE_LIMIT)
@@ -74,6 +77,12 @@ class WarudoBridge:
         # Whose mouth the viseme stream currently drives. Switched per line by
         # speak_as(); with one character on stage it never changes.
         self.viseme_prefix = cfg.warudo.action_prefix
+
+    @property
+    def emotes_suppressed(self) -> int:
+        """Emotes the channel rules dropped. Counted, never logged: at one a
+        turn this would be the loudest thing in the log."""
+        return self.channels.suppressed
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -363,23 +372,8 @@ class WarudoBridge:
         the market does. Without that rule a level breaking mid-sentence would
         put a surprised face on a host who is calmly explaining something else.
         """
-        now = time.monotonic()
-        spacing = (
-            CONVERSATION_EMOTE_SPACING
-            if channel == "conversation"
-            else self.cfg.warudo.emote_debounce_seconds
-        )
-        if channel == "conversation":
-            self._speaking_until = now + max(0.0, hold)
-        elif now < self._speaking_until:
-            # A market emote arriving mid-line loses to the line being spoken.
-            self.emotes_suppressed += 1
+        if not self.channels.allow(channel, time.monotonic(), hold=hold):
             return
-
-        if now - self._last_emote_at.get(channel, -1e9) < spacing:
-            self.emotes_suppressed += 1
-            return
-        self._last_emote_at[channel] = now
 
         self.send(
             {

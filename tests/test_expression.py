@@ -308,7 +308,7 @@ def test_a_conversation_emote_is_not_swallowed_by_the_market_debounce():
     b.send_emote("surprised", hold=1.0, channel="conversation")
     assert len(actions(b)) == 1, "two moods 0s apart should be spaced, not both sent"
 
-    b._last_emote_at["conversation"] -= 5.0
+    b.channels._last_at["conversation"] -= 5.0
     b.send_emote("bored", hold=1.0, channel="conversation")
     assert len(actions(b)) == 2, "a mood five seconds later should get through"
 
