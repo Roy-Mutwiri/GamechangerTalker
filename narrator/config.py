@@ -138,11 +138,29 @@ class HostsConfig(BaseModel):
     """
 
     enabled: bool = False
-    # "ollama" runs a model on this machine, free and unmetered. "anthropic"
-    # uses the hosted API and needs ANTHROPIC_API_KEY. "auto" prefers local.
+    # Where the words come from.
+    #   "ollama"      a model on this machine. Free, unmetered, offline.
+    #   "anthropic"   the hosted API. Needs ANTHROPIC_API_KEY.
+    #   "openrouter" | "openai" | "groq" | "together" | "azure" | "local"
+    #                 any OpenAI-compatible endpoint. Needs that provider's key
+    #                 in the environment -- never in this file.
+    #   "github"      retired by GitHub on 2026-07-30. Still recognised so an
+    #                 operator following an older guide is told what happened
+    #                 rather than left debugging DNS.
+    #   "auto"        local first, then whichever hosted key is in the
+    #                 environment, then Anthropic.
     backend: str = "ollama"
     model: str = "qwen2.5:7b-instruct-q4_K_M"
     ollama_host: str = "http://127.0.0.1:11434"
+    # Only for a provider the presets do not cover, or an Azure Foundry
+    # resource, whose URL is per-account and cannot be guessed. Blank means
+    # "use the preset named by `backend`".
+    base_url: str = ""
+    # Which environment variable holds the key. Blank means the preset's own
+    # (OPENROUTER_API_KEY, OPENAI_API_KEY, GROQ_API_KEY...). The key itself is
+    # never read from this file: config.toml is the thing most likely to be on
+    # screen during a stream.
+    token_env: str = ""
     max_tokens: int = 120
     temperature: float = 1.0
     memory_turns: int = 14
@@ -174,6 +192,43 @@ class HostsConfig(BaseModel):
     # Never let the conversation take a slot that a high-priority market event
     # wanted. Library templates at or above this priority always win.
     yield_to_priority: int = 3
+
+    # -- sampling, for the OpenAI-compatible backends ------------------------
+    # This API has no repeat_penalty. The echoing Ollama suppresses with
+    # repeat_penalty/repeat_last_n -- observed live as both hosts opening
+    # "Exactly," and restating each other three turns running -- is suppressed
+    # by these instead. Presence discourages returning to a subject at all;
+    # frequency discourages reusing the same word.
+    top_p: float = 0.92
+    presence_penalty: float = 0.6
+    frequency_penalty: float = 0.4
+
+    # -- request budget ------------------------------------------------------
+    # A free tier gives you a fixed number of requests a day. Capping at it is
+    # the obvious response and the wrong one: the hosts would talk beautifully
+    # for twenty minutes and then be silent for the rest of the night. These
+    # numbers are used to *pace* instead -- remaining requests spread over
+    # remaining stream time -- so the conversation lasts the whole session at a
+    # slower cadence and the library fills every gap, exactly as it does when
+    # the brain is off.
+    #
+    # Conservative defaults, because every provider publishes different limits
+    # and changes them. A 429 at runtime always overrides what is set here.
+    requests_per_minute: int = 15
+    requests_per_day: int = 150
+    # Hour of the UTC day the provider's quota resets. Most use midnight.
+    day_resets_at_utc: int = 0
+    # How long tonight is expected to run. This is the denominator that turns a
+    # daily cap into a pace: set it far too low and the hosts run out early;
+    # far too high and they finish the night with quota unspent.
+    stream_hours: float = 6.0
+    # Never plan to spend the last slice of the day. A 429 storm or a restart
+    # would otherwise strand the pair with nothing for the final hour.
+    reserve_fraction: float = 0.15
+    # Counters survive a restart: the provider's day does not begin again when
+    # the process does.
+    budget_state_file: str = "logs/llm_budget.json"
+
     personas: list[PersonaConfig] = Field(default_factory=list)
 
 
@@ -349,6 +404,9 @@ class ChartConfig(BaseModel):
     # "anthropic" reads the chart properly and is metered per image.
     backend: str = "ollama"
     model: str = "qwen2.5vl:7b"
+    # Only for an OpenAI-compatible provider the presets do not cover, or an
+    # Azure Foundry resource. Blank means "use the preset named by `backend`".
+    base_url: str = ""
     # A look costs an image through a model, and a chart does not change
     # character between one minute and the next -- the numbers do, and those
     # come from the feed. Looking often would multiply the cost without

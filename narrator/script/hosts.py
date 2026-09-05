@@ -37,6 +37,26 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from narrator.llm.base import Backend
+from narrator.llm.budget import (
+    BudgetedBackend,
+    BudgetExhausted,
+    BudgetWait,
+    RateBudget,
+    unlimited_budget,
+)
+from narrator.llm.openai_compat import (
+    PRESETS,
+    AuthError,
+    BadRequest,
+    EmptyCompletion,
+    OpenAICompatClient,
+    Preset,
+    RateLimited,
+    Upstream,
+    resolve_preset,
+    validate_model_id,
+)
 from narrator.script.guard import screen
 from narrator.script.topics import Seed, TopicPicker
 from narrator.speech.normalize import collapse_whitespace
@@ -305,21 +325,6 @@ class Turn:
 # ---------------------------------------------------------------------------
 
 
-class Backend:
-    """Turns a system prompt and a user block into one spoken turn."""
-
-    name = "none"
-
-    async def complete(
-        self, system: str, user: str, *, max_tokens: int, temperature: float
-    ) -> str:
-        raise NotImplementedError
-
-    def ready(self) -> str:
-        """Empty if usable, otherwise why not -- in words worth showing a human."""
-        return ""
-
-
 class OllamaBackend(Backend):
     """A model running on this machine. Free, unmetered, and offline.
 
@@ -436,6 +441,101 @@ class AnthropicBackend(Backend):
         return ""
 
 
+class OpenAICompatBackend(Backend):
+    """Any endpoint that speaks OpenAI chat completions.
+
+    One class covers OpenRouter, OpenAI, Groq, Together, Azure Foundry, LM
+    Studio and vLLM, because they differ in a URL, a token and whether model
+    ids carry a publisher -- and in nothing this module can see.
+
+    That generality earned itself immediately. This was specified against
+    GitHub Models, which was retired on 2026-07-30 while it was being built. A
+    class written to that one URL would have been deleted; this one changed a
+    default.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        preset: Preset | None,
+        base_url: str,
+        token: str,
+        timeout: float = 30.0,
+        top_p: float = 0.92,
+        presence_penalty: float = 0.6,
+        frequency_penalty: float = 0.4,
+        extra_headers: dict[str, str] | None = None,
+        client: Any = None,
+    ) -> None:
+        self.model = model
+        self.preset = preset
+        self.base_url = base_url
+        self.token = token
+        self.top_p = top_p
+        self.presence_penalty = presence_penalty
+        self.frequency_penalty = frequency_penalty
+        self.client = OpenAICompatClient(
+            base_url=base_url,
+            token=token,
+            timeout=timeout,
+            extra_headers=dict(extra_headers or {}),
+            client=client,
+        )
+
+    @property
+    def name(self) -> str:  # type: ignore[override]
+        return self.preset.key if self.preset else "openai-compat"
+
+    async def complete(
+        self, system: str, user: str, *, max_tokens: int, temperature: float
+    ) -> str:
+        try:
+            completion = await self.client.chat(
+                self.model,
+                system,
+                user,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=self.top_p,
+                presence_penalty=self.presence_penalty,
+                frequency_penalty=self.frequency_penalty,
+            )
+        except Upstream:
+            # Exactly one retry, here rather than in the client: a 5xx is
+            # usually a single unlucky request, and a transport that retried on
+            # its own would turn one slow turn into a silent twenty seconds
+            # that looks identical to a hung model from the outside.
+            await asyncio.sleep(random.uniform(0.5, 1.5))
+            completion = await self.client.chat(
+                self.model,
+                system,
+                user,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=self.top_p,
+                presence_penalty=self.presence_penalty,
+                frequency_penalty=self.frequency_penalty,
+            )
+        return completion.text
+
+    def ready(self) -> str:
+        if self.preset is not None and self.preset.retired:
+            return self.preset.retired
+        if not self.base_url:
+            return (
+                f"needs a base_url — set github_base_url under [hosts] to your "
+                f"{self.name} endpoint"
+            )
+        if not self.token:
+            env = self.preset.token_env if self.preset else "the configured variable"
+            return (
+                f"needs an API key — set {env}, or switch backend = \"ollama\" "
+                "under [hosts] to run locally for free"
+            )
+        return validate_model_id(self.model, self.preset)
+
+
 # Errors that will still be errors in eight seconds. A missing key, an empty
 # credit balance or a revoked token does not heal on retry, and hammering the
 # API once a turn for a twelve-hour stream turns one clear failure into
@@ -550,6 +650,35 @@ class HostConfig:
     # they were observably stuck in.
     topic_every: int = 4
 
+    # -- hosted, OpenAI-compatible ------------------------------------------
+    # Blank means "take it from the preset named by `backend`". Set it only for
+    # a provider the presets do not cover, or an Azure Foundry resource, where
+    # the URL is per-account and cannot be guessed.
+    base_url: str = ""
+    # Read from the environment, never from config.toml: that file is the one
+    # most likely to be on screen.
+    token_env: str = ""
+    # Sampling. There is no repeat_penalty in this API, so the echoing that
+    # Ollama suppresses with repeat_penalty/repeat_last_n is suppressed here by
+    # these two -- observed live as both hosts opening "Exactly," and restating
+    # each other three turns running.
+    top_p: float = 0.92
+    presence_penalty: float = 0.6
+    frequency_penalty: float = 0.4
+
+    # -- budget --------------------------------------------------------------
+    # Conservative, because every provider publishes different numbers and
+    # changes them. A 429 at runtime always overrides whatever is set here.
+    requests_per_minute: int = 15
+    requests_per_day: int = 150
+    day_resets_at_utc: int = 0
+    # How long tonight is expected to run. This is the denominator that turns a
+    # daily cap into a pace: get it badly wrong and the hosts either run out
+    # early or finish the night with unspent quota.
+    stream_hours: float = 6.0
+    reserve_fraction: float = 0.15
+    budget_state_file: str = "logs/llm_budget.json"
+
 
 class HostConversation:
     """Keeps two hosts one turn ahead of the microphone."""
@@ -591,6 +720,11 @@ class HostConversation:
         # The operator's own switch, unlike disabled_reason: reversible, and
         # it says nothing about whether the layer would work if resumed.
         self.paused = False
+        # Set by the budget or by a 429. Distinct from `paused`, which is the
+        # operator, and from `disabled_reason`, which is permanent: this one
+        # clears by itself and needs no explanation beyond a countdown.
+        # Monotonic, because it is a duration and not a moment in the market.
+        self._paused_until = 0.0
 
         self.backend = build_backend(cfg)
         self._pending: asyncio.Task[Turn | None] | None = None
@@ -651,6 +785,15 @@ class HostConversation:
             reason,
         )
 
+    def rate_limited_for(self) -> float:
+        """Seconds until the budget or a 429 lets the pair speak again."""
+        return max(0.0, self._paused_until - time.monotonic())
+
+    def budget_status(self) -> Any:
+        """The wrapped budget's own view, or None for a backend without one."""
+        getter = getattr(self.backend, "status", None)
+        return getter() if callable(getter) else None
+
     def status(self) -> str:
         if not self.cfg.enabled:
             return "off"
@@ -661,8 +804,18 @@ class HostConversation:
             return f"stopped: {self.disabled_reason[:48]}"
         if self.paused:
             return "solo (podcast off)"
+        waiting = self.rate_limited_for()
+        if waiting > 1.0:
+            # Deliberately not phrased as an error. Being paced is the budget
+            # working; the operator should read it as "on, and rationing".
+            return f"{self.backend.name} · next in {waiting:.0f}s"
         if self._last_error:
             return f"error ({self._last_error[:24]})"
+        budget = self.budget_status()
+        if budget is not None and not budget.unlimited:
+            return (
+                f"{self.backend.name} · {budget.used_today}/{budget.limit_today} today"
+            )
         return f"{self.backend.name} · {self.turns_generated} turns"
 
     # -- the pipeline -------------------------------------------------------
@@ -685,6 +838,10 @@ class HostConversation:
         # A turn asked for while ~9GB of weights are still being paged onto the
         # GPU will simply time out and be counted as a failure. Wait it out.
         if self._warming or not self.available or self._pending is not None:
+            return
+        # Paced out, or waiting off a 429. Not an error and not worth a task:
+        # asking now would only raise BudgetWait inside the generator.
+        if self.rate_limited_for() > 0.0:
             return
         if len(self._queue) >= max(1, self.cfg.queue_depth):
             return
@@ -781,6 +938,40 @@ class HostConversation:
                 ),
                 timeout=self.cfg.timeout_seconds,
             )
+        except BudgetWait as wait:
+            # Not a failure. The pace said "not yet", the library keeps this
+            # slot, and nobody hears anything unusual. Counting it would trip
+            # FAILURE_LIMIT within a minute of a free tier's first pause.
+            self._paused_until = time.monotonic() + wait.seconds
+            return None
+        except BudgetExhausted as spent:
+            self._paused_until = time.monotonic() + spent.resets_in_s
+            self._last_error = ""
+            return None
+        except RateLimited as limited:
+            # The service's own answer. Never terminal, never a failure: a
+            # rate limit is the free tier working as designed, and treating it
+            # as an outage disables the brain for a whole stream over
+            # something that would have cleared in forty seconds.
+            self._paused_until = time.monotonic() + (limited.retry_after_s or 30.0)
+            self._last_error = "rate limited"
+            return None
+        except AuthError as denied:
+            self._give_up(_first_sentence(str(denied)))
+            return None
+        except BadRequest as bad:
+            self.failures += 1
+            self._last_error = "bad request"
+            if bad.terminal:
+                self._give_up(_first_sentence(str(bad)))
+            else:
+                log.warning("host turn rejected: %s", bad)
+            return None
+        except EmptyCompletion as empty:
+            # A 200 with nothing in it costs one line and nothing else.
+            self._last_error = "empty"
+            log.debug("host turn came back empty: %s", empty)
+            return None
         except TimeoutError:
             self.failures += 1
             self._last_error = "timeout"
@@ -991,24 +1182,90 @@ def wants_host_turn(
 
 
 def build_backend(cfg: HostConfig) -> Backend:
-    """Pick where the words come from.
+    """Pick where the words come from, and how fast it may be asked.
 
-    "auto" prefers the local model, because it costs nothing and cannot run up
-    a bill while nobody is watching, and falls back to the hosted API only when
-    a key is present and Ollama is not installed.
+    "auto" resolves in this order:
+
+        1. ollama, if it is installed -- free, offline, and it cannot run up a
+           bill while nobody is watching
+        2. any OpenAI-compatible preset whose token is in the environment
+        3. anthropic, if ANTHROPIC_API_KEY is set
+        4. ollama, which will then explain why it cannot run
+
+    Everything comes back wrapped in a budget so the conversation only ever
+    sees one interface. Local backends get an unlimited one, so nothing about
+    the Ollama path changes.
     """
     choice = (cfg.backend or "ollama").lower()
     key = cfg.api_key or os.environ.get("ANTHROPIC_API_KEY", "")
 
     if choice == "auto":
-        choice = "ollama" if _ollama_installed() else ("anthropic" if key else "ollama")
+        if _ollama_installed():
+            choice = "ollama"
+        else:
+            hosted = _first_configured_preset()
+            choice = hosted or ("anthropic" if key else "ollama")
 
     if choice == "anthropic":
-        return AnthropicBackend(cfg.model, key)
+        return _budgeted(AnthropicBackend(cfg.model, key), cfg, unlimited=True)
     if choice == "ollama":
-        return OllamaBackend(cfg.model, cfg.ollama_host)
+        return _budgeted(OllamaBackend(cfg.model, cfg.ollama_host), cfg, unlimited=True)
+
+    preset = resolve_preset(choice)
+    if preset is not None:
+        return _budgeted(_openai_compat(cfg, preset), cfg, unlimited=preset.key == "local")
+
     log.warning("unknown hosts.backend %r; falling back to ollama", cfg.backend)
-    return OllamaBackend(cfg.model, cfg.ollama_host)
+    return _budgeted(OllamaBackend(cfg.model, cfg.ollama_host), cfg, unlimited=True)
+
+
+def _openai_compat(cfg: HostConfig, preset: Preset) -> OpenAICompatBackend:
+    token_env = cfg.token_env or preset.token_env
+    return OpenAICompatBackend(
+        cfg.model,
+        preset=preset,
+        base_url=cfg.base_url or preset.base_url,
+        token=os.environ.get(token_env, ""),
+        timeout=cfg.timeout_seconds,
+        top_p=cfg.top_p,
+        presence_penalty=cfg.presence_penalty,
+        frequency_penalty=cfg.frequency_penalty,
+    )
+
+
+def _first_configured_preset() -> str:
+    """The first hosted provider whose token is actually in the environment.
+
+    Retired providers are skipped: resolving "auto" to something that no longer
+    exists would be a worse failure than resolving it to a local model that is
+    not installed, because the error would be a DNS one.
+    """
+    for preset in PRESETS.values():
+        if preset.retired or not preset.token_env:
+            continue
+        if os.environ.get(preset.token_env, "").strip():
+            return preset.key
+    return ""
+
+
+def _budgeted(backend: Backend, cfg: HostConfig, *, unlimited: bool) -> Backend:
+    if unlimited:
+        return BudgetedBackend(backend, unlimited_budget(cfg.model))
+    from pathlib import Path
+
+    state = Path(cfg.budget_state_file) if cfg.budget_state_file else None
+    return BudgetedBackend(
+        backend,
+        RateBudget(
+            requests_per_minute=cfg.requests_per_minute,
+            requests_per_day=cfg.requests_per_day,
+            day_resets_at_utc=cfg.day_resets_at_utc,
+            stream_hours=cfg.stream_hours,
+            reserve_fraction=cfg.reserve_fraction,
+            model=cfg.model,
+            state_path=state,
+        ),
+    )
 
 
 def _ollama_installed() -> bool:
@@ -1060,6 +1317,17 @@ def build_conversation(cfg: Any) -> HostConversation:
             timeout_seconds=block.timeout_seconds,
             ollama_host=block.ollama_host,
             topic_every=block.topic_every,
+            base_url=getattr(block, "base_url", ""),
+            token_env=getattr(block, "token_env", ""),
+            top_p=getattr(block, "top_p", 0.92),
+            presence_penalty=getattr(block, "presence_penalty", 0.6),
+            frequency_penalty=getattr(block, "frequency_penalty", 0.4),
+            requests_per_minute=getattr(block, "requests_per_minute", 15),
+            requests_per_day=getattr(block, "requests_per_day", 150),
+            day_resets_at_utc=getattr(block, "day_resets_at_utc", 0),
+            stream_hours=getattr(block, "stream_hours", 6.0),
+            reserve_fraction=getattr(block, "reserve_fraction", 0.15),
+            budget_state_file=getattr(block, "budget_state_file", "logs/llm_budget.json"),
         ),
         personas,
     )

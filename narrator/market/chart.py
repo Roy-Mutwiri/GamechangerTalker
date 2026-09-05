@@ -37,12 +37,15 @@ import asyncio
 import base64
 import ctypes
 import logging
+import os
 import re
 import subprocess
 import time
 from ctypes import wintypes
 from dataclasses import dataclass
 from typing import Any
+
+from narrator.llm.openai_compat import OpenAICompatClient, resolve_preset
 
 log = logging.getLogger(__name__)
 
@@ -223,6 +226,7 @@ class ChartEyes:
         api_key: str = "",
         backend: str = "anthropic",
         ollama_host: str = "http://127.0.0.1:11434",
+        base_url: str = "",
         every_seconds: float = 90.0,
         width: int = 1280,
         process: str = PROCESS,
@@ -236,6 +240,9 @@ class ChartEyes:
         # ninety seconds rather than once a frame.
         self.backend = backend
         self.ollama_host = ollama_host.rstrip("/")
+        self.base_url = base_url
+        # Lazily built, like the Anthropic client above it.
+        self._compat: OpenAICompatClient | None = None
         self.every_seconds = max(20.0, every_seconds)
         self.width = width
         self.process = process
@@ -299,7 +306,47 @@ class ChartEyes:
     async def _describe(self, jpeg: bytes) -> str:
         if self.backend == "ollama":
             return await self._describe_locally(jpeg)
+        if resolve_preset(self.backend) is not None:
+            return await self._describe_openai_compat(jpeg)
         return await self._describe_hosted(jpeg)
+
+    async def _describe_openai_compat(self, jpeg: bytes) -> str:
+        """A vision model behind any OpenAI-compatible endpoint.
+
+        One look is one request, and it comes out of the *same* daily budget
+        the hosts spend -- which is why [chart] ships disabled for these
+        backends. On a 150/day free tier a look every two minutes would eat
+        the whole allowance before the hosts said anything.
+        """
+        preset = resolve_preset(self.backend)
+        if self._compat is None:
+            token_env = preset.token_env if preset else ""
+            self._compat = OpenAICompatClient(
+                base_url=self.base_url or (preset.base_url if preset else ""),
+                token=self.api_key or os.environ.get(token_env, ""),
+                timeout=180.0,
+            )
+        completion = await self._compat.chat(
+            self.model,
+            SYSTEM,
+            "",
+            max_tokens=220,
+            temperature=0.3,
+            content=[
+                {
+                    "type": "text",
+                    "text": "What kind of picture is this chart right now?",
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/jpeg;base64,"
+                        + base64.b64encode(jpeg).decode("ascii")
+                    },
+                },
+            ],
+        )
+        return completion.text
 
     async def _describe_locally(self, jpeg: bytes) -> str:
         """A vision model on this machine. Free, and slower than it sounds."""
@@ -384,8 +431,15 @@ class ChartEyes:
             f"  {view.text}"
         )
 
+    def _have_key(self) -> bool:
+        """A key from config, or from whichever variable the preset names."""
+        if self.api_key:
+            return True
+        preset = resolve_preset(self.backend)
+        return bool(preset and os.environ.get(preset.token_env, ""))
+
     def status(self) -> str:
-        if self.backend != "ollama" and not self.api_key:
+        if self.backend != "ollama" and not self._have_key():
             return "off (no key)"
         if self.view is None:
             return f"blind ({self.last_error})" if self.last_error else "not looked yet"

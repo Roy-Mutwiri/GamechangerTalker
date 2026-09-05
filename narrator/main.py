@@ -283,8 +283,12 @@ class Narrator:
 
             self.eyes = ChartEyes(
                 model=cfg.chart.model,
+                # Anthropic's key by name; every other hosted provider's is
+                # found from its preset inside ChartEyes, so adding one does
+                # not mean editing this call.
                 api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
                 backend=cfg.chart.backend,
+                base_url=cfg.chart.base_url,
                 every_seconds=cfg.chart.look_every_seconds,
                 width=cfg.chart.width,
             )

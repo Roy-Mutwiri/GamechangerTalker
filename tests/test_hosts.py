@@ -8,6 +8,14 @@ from datetime import UTC, datetime
 
 import pytest
 
+from narrator.llm.budget import BudgetWait
+from narrator.llm.openai_compat import (
+    PRESETS,
+    AuthError,
+    BadRequest,
+    EmptyCompletion,
+    RateLimited,
+)
 from narrator.script.hosts import (
     DEFAULT_PERSONAS,
     FAILURE_LIMIT,
@@ -16,6 +24,7 @@ from narrator.script.hosts import (
     HostConfig,
     HostConversation,
     OllamaBackend,
+    OpenAICompatBackend,
     _strip_speaker_prefix,
     build_backend,
     wants_host_turn,
@@ -635,20 +644,36 @@ def test_speaker_prefixes_are_stripped(raw, expected):
 # ---------------------------------------------------------------------------
 
 
+def chosen(cfg: HostConfig):
+    """The backend build_backend picked, through the budget that wraps it.
+
+    Everything comes back wrapped now, so the conversation only ever sees one
+    interface and the local path can carry an unlimited budget without knowing
+    it. The tests care about which model was chosen, not about the wrapper.
+    """
+    backend = build_backend(cfg)
+    return getattr(backend, "inner", backend)
+
+
 def test_ollama_is_the_default():
     """A stream running unattended for twelve hours should not be able to
     run up a bill without somebody asking for that."""
     assert HostConfig().backend == "ollama"
-    assert isinstance(build_backend(HostConfig()), OllamaBackend)
+    assert isinstance(chosen(HostConfig()), OllamaBackend)
 
 
 def test_the_hosted_backend_is_chosen_explicitly():
-    backend = build_backend(HostConfig(backend="anthropic", api_key="k"))
-    assert isinstance(backend, AnthropicBackend)
+    assert isinstance(chosen(HostConfig(backend="anthropic", api_key="k")), AnthropicBackend)
 
 
 def test_an_unknown_backend_falls_back_to_local_rather_than_failing():
-    assert isinstance(build_backend(HostConfig(backend="wat")), OllamaBackend)
+    assert isinstance(chosen(HostConfig(backend="wat")), OllamaBackend)
+
+
+def test_the_local_backend_is_never_rationed():
+    """Wrapping Ollama in a budget must not start rationing a free model."""
+    backend = build_backend(HostConfig(backend="ollama"))
+    assert backend.status().unlimited
 
 
 def test_the_local_backend_needs_no_key():
@@ -957,3 +982,170 @@ def test_a_layer_that_gave_up_cannot_be_resumed_by_the_toggle():
     convo._give_up("credit balance is too low")
     convo.set_paused(False)
     assert not convo.usable and not convo.available
+
+
+# ---------------------------------------------------------------------------
+# The hosted brain: budgets, rate limits, and what the audience hears
+# ---------------------------------------------------------------------------
+
+
+def test_github_models_is_recognised_and_explains_that_it_is_gone(monkeypatch):
+    """It was retired on 2026-07-30. An operator following an older guide
+    should be told that, not left debugging DNS."""
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_whatever")
+    backend = build_backend(HostConfig(backend="github", model="openai/gpt-4o-mini"))
+    reason = backend.ready()
+    assert "retired" in reason
+    assert "2026-07-30" in reason
+    assert "openrouter" in reason
+
+
+def test_an_openai_compatible_backend_is_wrapped_in_a_budget(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    backend = build_backend(HostConfig(backend="openrouter", model="openai/gpt-4o-mini"))
+    assert backend.ready() == ""
+    assert backend.status().limit_today == 150
+    assert isinstance(getattr(backend, "inner", None), OpenAICompatBackend)
+
+
+def test_a_hosted_backend_without_its_key_names_the_variable(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    backend = build_backend(HostConfig(backend="openrouter", model="openai/gpt-4o-mini"))
+    assert "OPENROUTER_API_KEY" in backend.ready()
+    assert "ollama" in backend.ready()
+
+
+def test_a_publisherless_model_id_is_refused_before_a_single_request(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    backend = build_backend(HostConfig(backend="openrouter", model="gpt-4o-mini"))
+    assert "publisher/model" in backend.ready()
+
+
+def clear_provider_keys(monkeypatch):
+    for preset in PRESETS.values():
+        if preset.token_env:
+            monkeypatch.delenv(preset.token_env, raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+
+def test_auto_prefers_local_even_when_a_hosted_key_is_present(monkeypatch):
+    """A stream left running unattended should not be able to spend money
+    when a free local model is sitting right there."""
+    clear_provider_keys(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    monkeypatch.setattr("narrator.script.hosts._ollama_installed", lambda: True)
+    assert isinstance(chosen(HostConfig(backend="auto")), OllamaBackend)
+
+
+def test_auto_falls_through_to_a_hosted_key_when_ollama_is_absent(monkeypatch):
+    clear_provider_keys(monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    monkeypatch.setattr("narrator.script.hosts._ollama_installed", lambda: False)
+    picked = chosen(HostConfig(backend="auto", model="openai/gpt-4o-mini"))
+    assert isinstance(picked, OpenAICompatBackend)
+    assert picked.name == "openrouter"
+
+
+def test_auto_never_resolves_to_a_retired_provider(monkeypatch):
+    """Resolving to something that no longer exists is a worse failure than
+    resolving to a local model that is not installed."""
+    clear_provider_keys(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_whatever")
+    monkeypatch.setattr("narrator.script.hosts._ollama_installed", lambda: False)
+    assert isinstance(chosen(HostConfig(backend="auto")), OllamaBackend)
+
+
+def test_auto_ends_at_ollama_with_nothing_configured(monkeypatch):
+    clear_provider_keys(monkeypatch)
+    monkeypatch.setattr("narrator.script.hosts._ollama_installed", lambda: False)
+    assert isinstance(chosen(HostConfig(backend="auto")), OllamaBackend)
+
+
+@pytest.mark.asyncio
+async def test_being_paced_out_costs_no_turn_and_no_failure():
+    """BudgetWait is not an error. Counting it would trip FAILURE_LIMIT within
+    a minute of a free tier's first pause and kill the brain for the night."""
+    convo = build(["never asked for"])
+    convo.backend = FakeBackend(error=BudgetWait(30.0))
+
+    convo.prime(FACTS, NOW)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert convo.take() is None
+    assert convo.failures == 0
+    assert convo.disabled_reason == ""
+    assert convo.rate_limited_for() > 0
+
+
+@pytest.mark.asyncio
+async def test_a_rate_limit_pauses_without_counting_as_a_failure():
+    convo = build()
+    convo.backend = FakeBackend(error=RateLimited("slow down", 45.0))
+
+    convo.prime(FACTS, NOW)
+    for _ in range(4):
+        await asyncio.sleep(0)
+
+    assert convo.failures == 0, "a 429 is the free tier working, not an outage"
+    assert convo.disabled_reason == ""
+    assert 40 < convo.rate_limited_for() <= 45
+
+
+@pytest.mark.asyncio
+async def test_a_paused_conversation_does_not_even_start_a_generation():
+    convo = build(["a turn"])
+    convo._paused_until = __import__("time").monotonic() + 60.0
+    convo.prime(FACTS, NOW)
+    assert convo._pending is None
+    assert sent(convo) == []
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_token_stops_the_layer_with_the_api_s_own_words():
+    convo = build()
+    convo.backend = FakeBackend(error=AuthError("Bad credentials. Check the token."))
+
+    convo.prime(FACTS, NOW)
+    for _ in range(4):
+        await asyncio.sleep(0)
+
+    assert convo.disabled_reason.startswith("Bad credentials")
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_model_stops_the_layer_but_a_long_prompt_does_not():
+    terminal = build()
+    terminal.backend = FakeBackend(error=BadRequest("model_not_found", terminal=True))
+    terminal.prime(FACTS, NOW)
+    for _ in range(4):
+        await asyncio.sleep(0)
+    assert terminal.disabled_reason
+
+    transient = build()
+    transient.backend = FakeBackend(error=BadRequest("maximum context length"))
+    transient.prime(FACTS, NOW)
+    for _ in range(4):
+        await asyncio.sleep(0)
+    assert transient.disabled_reason == ""
+    assert transient.failures == 1
+
+
+@pytest.mark.asyncio
+async def test_an_empty_completion_costs_one_line_and_nothing_else():
+    convo = build()
+    convo.backend = FakeBackend(error=EmptyCompletion("nothing came back"))
+    convo.prime(FACTS, NOW)
+    for _ in range(4):
+        await asyncio.sleep(0)
+    assert convo.take() is None
+    assert convo.failures == 0
+    assert convo.disabled_reason == ""
+
+
+def test_the_status_line_shows_rationing_as_a_countdown_not_an_error():
+    convo = build()
+    convo._paused_until = __import__("time").monotonic() + 42.0
+    status = convo.status()
+    assert "next in" in status
+    assert "error" not in status
