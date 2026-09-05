@@ -74,6 +74,8 @@ class Utterance:
     # neutral on a stock VRM, and a report that could not tell them apart
     # would hide exactly the thing it exists to show.
     mood: str = ""
+    # Tags on this line the parser threw away. Only the host layer sets it.
+    unknown_tags: int = 0
 
 
 @dataclass

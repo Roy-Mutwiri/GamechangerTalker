@@ -639,6 +639,7 @@ class Narrator:
             emote=expression.MOOD_TO_EMOTE.get(mood) if mood else None,
             beats=beats,
             mood=mood or "",
+            unknown_tags=int(getattr(turn, "unknown_tags", 0) or 0),
             voice=persona.voice,
             avatar=persona.avatar,
             # Everything the library says comes out of slot 0 by default, so
@@ -772,7 +773,7 @@ class Narrator:
             dry_run=self.dry_run,
             mood=utterance.mood or None,
             beats=",".join(b.name for b in utterance.beats),
-            unknown_tags=0,
+            unknown_tags=utterance.unknown_tags,
         )
 
         if utterance.beats:

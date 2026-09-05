@@ -1149,3 +1149,30 @@ def test_the_status_line_shows_rationing_as_a_countdown_not_an_error():
     status = convo.status()
     assert "next in" in status
     assert "error" not in status
+
+
+@pytest.mark.asyncio
+async def test_an_invented_tag_is_counted_on_the_line_it_was_invented_on():
+    """The defect a demo run found. The parser threw the tags away correctly
+    -- nothing reached the microphone -- but the count only ever landed on the
+    conversation's running total, and main.py wrote a hardcoded zero into the
+    logbook. So `tools.review --emotes` reported "0 invented tags" on a run
+    where the model had invented one on nearly every line, which is exactly
+    the number that report exists to show."""
+    convo = build(["[flabbergasted] The level went, and it went hard."])
+    turn = await one_turn(convo)
+
+    assert turn is not None
+    assert turn.unknown_tags == 1
+    assert "[" not in turn.text
+    assert "flabbergasted" not in turn.text.lower()
+    assert convo.unknown_tags == 1
+
+
+@pytest.mark.asyncio
+async def test_a_clean_line_counts_nothing():
+    convo = build(["[serious] Watch that level."])
+    turn = await one_turn(convo)
+    assert turn is not None
+    assert turn.unknown_tags == 0
+    assert turn.mood == "serious"

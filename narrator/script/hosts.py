@@ -319,6 +319,12 @@ class Turn:
     # taken off -- these are what they said.
     mood: str | None = None
     beats: list[expression.Beat] = field(default_factory=list)
+    # How many tags on this line the parser did not recognise. Carried per
+    # turn rather than only summed on the conversation, because the report
+    # that matters is "which lines did the model invent tags on" -- a total
+    # cannot tell you it has been inventing them on every third turn since a
+    # prompt change.
+    unknown_tags: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -1124,6 +1130,7 @@ class HostConversation:
             at=now,
             mood=marked.mood,
             beats=list(marked.beats),
+            unknown_tags=len(marked.unknown),
         )
 
     def _persona_block(self) -> str:
