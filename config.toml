@@ -716,3 +716,102 @@ max_comment_chars = 160
 stale_after_seconds = 120.0
 # Added to the built-in list, never replacing it.
 blocklist = []
+
+
+# ---------------------------------------------------------------------------
+# The Unreal MetaHuman
+#
+# The other renderer. [warudo] drives a VRM over a WebSocket; this drives a
+# MetaHuman over Live Link Face and Unreal's Remote Control API. Both can run
+# at once -- they consume the same utterances, emotes and beats -- so you can
+# watch the two side by side and decide which one the audience sees.
+#
+# Off by default, and with it off nothing below is constructed: `--simulate`
+# is byte-identical either way, and every run that worked before this existed
+# works exactly as it did.
+#
+# First light, before anything else in here is worth reading:
+#     python -m tools.livelink_check --blink
+# If the MetaHuman blinks and drifts, the whole chain is proven. See
+# UNREAL_SETUP.md.
+# ---------------------------------------------------------------------------
+[character]
+enabled = false
+fps = 60
+# The idle layer's randomness. Fixed, so two runs being compared blink alike
+# and a change in the head motion is a diff rather than a feeling. The second
+# seat gets seed + 1: two MetaHumans blinking in unison read as one puppet
+# with two heads, which is the first thing anybody notices about a two-host
+# shot built by duplicating an actor.
+seed = 7
+# Optional recorded gesture clips, as exported by the Live Link Face app.
+# Every beat already has a procedural one, so an empty or missing directory is
+# the normal case -- but a nod performed by a person beats a nod described by
+# a sine wave, and `python -m tools.record_clip nod` is thirty seconds with a
+# phone. A clip whose filename matches a beat replaces that beat's curve.
+clips_dir = "clips"
+
+[character.livelink]
+host = "127.0.0.1"
+# What the Live Link Face app sends to, and what Unreal listens on once the
+# Apple ARKit Face Support plugin is enabled and the editor has restarted.
+#
+# UDP has no acknowledgement. A run against a machine with Unreal closed looks
+# exactly like a run against one with Unreal open, and the status line says
+# "sent" rather than "connected" because that is all this can honestly know.
+port = 11111
+# Must match the MetaHuman's Live Link subject setting EXACTLY, case included.
+# Unreal matches subjects by string and says nothing at all when it fails to
+# find one, which is the single most common reason for a face that does not
+# move while every number here looks healthy.
+subject = "Presenter"
+# The second seat, for podcast mode. Not streamed at all until somebody is in
+# it: a Live Link subject that arrives and never moves is a panel entry you
+# have to explain and twice the traffic to say nothing.
+subject_2 = "Presenter2"
+
+[character.unreal]
+# remote_control | osc | none
+#
+# `remote_control` is HTTP and tells you when a call failed, at the cost of
+# needing the actor's object path. `osc` is UDP, needs no path and no web
+# server, and cannot tell you anything -- a call into a closed editor vanishes
+# without a sound. `none` accepts every call and sends nothing, which is what
+# you want when the face is working and the body is not set up yet.
+transport = "remote_control"
+remote_control_url = "http://127.0.0.1:30010"
+# The presenter actor's path in the loaded level, e.g.
+#   "/Game/Maps/Studio.Studio:PersistentLevel.BP_Presenter_C_1"
+#
+# Per-level, so it can never be a constant in the code. Right-click the actor
+# in the outliner -> Copy Reference, and check it with
+#     python -m tools.unreal_check
+# which prints the path it resolved in exactly the form this line wants.
+#
+# Empty is not an error: it means you have not been into the editor yet, and
+# you get a face that still blinks and a body that does nothing.
+#
+# Play-In-Editor duplicates the world and prefixes every path with UEDPIE_0_,
+# so a path copied from the editor world resolves to a real actor that is not
+# the one on screen -- calls return 200 and nothing moves. Run as Standalone
+# Game. UNREAL_SETUP.md has the detail.
+object_path = ""
+osc_host = "127.0.0.1"
+osc_port = 8000
+
+# Additive ARKit offsets per mood, merged over the defaults in
+# avatar/face.py. Only the moods and channels you name are changed.
+#
+# An unknown mood, or a channel name Live Link does not have, is a load-time
+# error naming both -- the way a template referring to an unknown fact is. An
+# operator tuning an expression should be told at startup, not by watching a
+# face that never changes.
+#
+# The defaults are deliberately small. An expression that reads clearly in a
+# still frame is a caricature in motion, and what carries a mood on a real
+# face is how long it lasts rather than how far it travels.
+#
+#   [character.moods.happy]
+#   MouthSmileLeft = 0.42
+#   MouthSmileRight = 0.42
+[character.moods]

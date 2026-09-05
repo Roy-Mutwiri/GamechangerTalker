@@ -163,6 +163,73 @@ idle animation can be set per avatar the same way as the shot.
 Warudo's camera, not the capture. In Warudo's render window: hold **right
 mouse** to look around, **WASD** to move, **Q/E** down and up.
 
+## The character: a MetaHuman instead of a VRM
+
+There is a second renderer. Warudo drives a stylised VRM over a WebSocket;
+`[character]` drives an Unreal MetaHuman over Live Link Face and Unreal's
+Remote Control API. Both consume the same utterances, emotes and beats, and
+both can run at once — so you can put the two side by side and decide which
+one the audience sees.
+
+**Unreal renders. This repo animates.** No animation decision lives in a
+Blueprint beyond "play this montage" and "blend this posture". When the face
+blinks, how long a mood lasts, where a nod lands — all of it is Python here,
+beside the phoneme timing it has to agree with.
+
+```toml
+[character]
+enabled = false        # the default; with it off, nothing below is built
+
+[character.livelink]
+port = 11111           # what Unreal listens on with Apple ARKit Face Support
+subject = "Presenter"  # must match the MetaHuman's Live Link subject exactly
+
+[character.unreal]
+transport = "remote_control"   # or "osc", or "none" for a face with no body
+object_path = ""               # the presenter actor's path; see UNREAL_SETUP.md
+```
+
+### First light, in three commands
+
+```powershell
+python -m tools.livelink_check --blink    # does the face receive anything
+python -m tools.unreal_check              # does the body, and what is its path
+python -m tools.character_demo            # one tagged line, end to end
+```
+
+`--blink` first, always. If the MetaHuman blinks and drifts, the whole chain
+is proven at once: the encoder, the socket, the firewall, the Live Link
+source, the subject name and the ARKit mapping on the face. If it does not,
+exactly one of those is wrong and none of the others need investigating.
+
+Nothing can tell you Unreal *received* a frame — Live Link is UDP and has no
+acknowledgement, so a run against a machine with Unreal closed looks identical
+to one with it open. The status line says "sent" for that reason.
+
+### What the face is made of
+
+Four layers, and the order is the design:
+
+| layer | what it does | when |
+|---|---|---|
+| idle | blinks, eye saccades, head drift, breath | always, including silence |
+| mouth | thirteen ARKit channels from the phoneme spans | **replaces** the mouth while speaking |
+| mood | the tag the host wrote, eased in and decayed out | **added** on top |
+| beat | a nod, a laugh, a raised eyebrow at one word | over the top, for its window |
+
+The idle layer is why any of it reads as a person: a still face is the loudest
+single tell that nobody is home. Each character gets its own seed, because two
+MetaHumans blinking in unison read as one puppet with two heads.
+
+Every beat has a procedural clip, so nothing has to be recorded. If you would
+rather have a real one, `python -m tools.record_clip nod` listens on 11111 and
+captures thirty seconds off the Live Link Face app; a clip whose filename
+matches a beat replaces that beat's curve.
+
+`UNREAL_SETUP.md` is the contract: subject names, the five Blueprint functions
+Unreal must expose, the object path, the firewall rule, and the OBS procedure
+for measuring how far the face is from the sound.
+
 ## The tuning loop
 
 Two commands, and between them they are the whole workflow:

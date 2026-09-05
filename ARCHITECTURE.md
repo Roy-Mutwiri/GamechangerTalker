@@ -34,13 +34,23 @@ like between the things worth announcing.
                                                     ▼                 ▼             ▼
                                                  audio out        phonemes      SQLite log
                                                  (sounddevice)        │
-                                                                      ▼
-                                                                   visemes
-                                                              ┌───────┴───────┐
-                                                              ▼               ▼
-                                                          Warudo          browser UI
-                                                        (WebSocket)       (WebSocket)
+                                             ┌────────────────────────┴───────┐
+                                             ▼                                ▼
+                                          visemes                        ARKit mouth
+                                    ┌────────┴────────┐                       │
+                                    ▼                 ▼                       ▼
+                                 Warudo          browser UI               Character
+                               (WebSocket)       (WebSocket)          ┌───────┴──────┐
+                                                                      ▼              ▼
+                                                                  Live Link       Unreal
+                                                                    (UDP)       (HTTP/OSC)
+                                                                    face           body
 ```
+
+Two renderers, one set of events. The VRM path and the MetaHuman path consume
+the same utterances, emotes and beats; the phoneme spans are resolved once per
+line and handed to both, so the two mouths agree by construction rather than
+by coincidence.
 
 ## The rules that shape everything
 
@@ -120,12 +130,17 @@ complexity actually is: `hosts.py` and `main.py` are half the codebase.
 | `speech/engine.py` | Kokoro, resident; disk phrase cache | cache stores phoneme spans, not just audio |
 | `speech/phonemes.py` | phoneme timing | token timestamps, else weighted proportional |
 | `speech/visemes.py` | phonemes → VRM blendshapes at 60fps | never amplitude; 40ms attack/release |
-| `speech/arkit.py` | phonemes → the ARKit 52 ("Perfect Sync") | waiting on a model that has them; five vowels is a low ceiling |
+| `speech/arkit.py` | phonemes → the ARKit 52 ("Perfect Sync") | what the MetaHuman's mouth is made of; the jaw and the lips move independently |
 | `speech/performance.py` | how a line is delivered, not what it says | only three levers exist — voice, speed, punctuation. Kokoro ignores SSML, tags and capitals |
 | `speech/fillers.py` | the noise a person makes taking the floor | covers the synthesis gap on a handover, in the incoming host's own voice |
 | `speech/playback.py` | audio out | Windows default device unless `audio.device` says otherwise |
 | **avatar** | | |
 | `avatar/warudo.py` | WebSocket bridge | bounded queue: drops frames rather than lagging |
+| `avatar/channels.py` | market vs conversation: who owns the face | one rule, shared by both renderers — two copies would be two rules within a month |
+| `avatar/livelink.py` | the Live Link Face wire, and the idle layer | golden-bytes tested against a known-good encoder; the uuid field has no length prefix |
+| `avatar/face.py` | idle + mouth + mood + beat, composed at 60fps | the mouth replaces, the mood adds, the beat wins; nothing allocates per frame |
+| `avatar/unreal.py` | the body: five calls over Remote Control or OSC | queued and drained by one task, so a stalled editor never reaches `_speak` |
+| `avatar/character.py` | the one object `main.py` talks to | holds the single arbiter; every failure degrades to a face that still blinks |
 | `avatar/emotes.py` | market events → expressions | edge-triggered, debounced |
 | `avatar/vrm.py` | VRM inspection | reads the GLB header; no Unity needed |
 | `avatar/install.py` | where Warudo is on this machine | one search, shared — a second opinion is a silent no-op |
@@ -151,6 +166,14 @@ Everything is one asyncio loop except three deliberate exceptions:
 Measured: the selection loop costs ~1.3 ms against a 2000 ms budget. The one
 number to watch is the p99 of ~12 ms, which is a GC pause, against a 16.7 ms
 frame budget at 60fps.
+
+The MetaHuman's face is a fourth loop, at 60fps, and it is sized against that
+same pause: composing a frame costs 0.43 ms worst case and encoding it 0.01
+ms, so the GC is the only thing that can ever cost a frame. The mouth track
+for a whole line is built once when the line starts (6 ms for a six-second
+line) rather than sampled per frame, which is what keeps the per-frame cost
+an array lookup. A late tick drops its backlog rather than replaying it: Live
+Link smooths one late frame and snaps on eight arriving together.
 
 ## Data that outlives a run
 

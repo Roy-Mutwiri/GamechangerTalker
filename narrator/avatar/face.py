@@ -476,18 +476,56 @@ def _read_clip(path: Path) -> np.ndarray:
     return np.array(rows, dtype=np.float32) if rows else np.zeros((0, 61), np.float32)
 
 
+#: How many beats may be waiting for their moment. A line carries at most one
+#: or two; this is a ceiling on a caller that has gone wrong, not a budget.
+MAX_PENDING_BEATS = 8
+
+
+class _Scheduled:
+    """A beat and the moment it belongs to, on the caller's clock."""
+
+    __slots__ = ("at", "clip", "deltas", "name", "span")
+
+    def __init__(
+        self,
+        name: str,
+        at: float,
+        span: float,
+        deltas: list[tuple[int, float]],
+        clip: np.ndarray | None,
+    ) -> None:
+        self.name = name
+        self.at = at
+        self.span = span
+        self.deltas = deltas
+        self.clip = clip
+
+
 class BeatLayer:
-    """One beat at a time, replacing whatever was still running.
+    """One beat playing at a time, out of a small schedule of moments.
 
-    A burst of two overlapping gestures is the thing that pops, and the honest
-    fix is not to blend them: a nod interrupted by a headshake should become a
-    headshake, not a wobble. Both curves are zero at both ends, so a replaced
-    beat leaves the face where it found it rather than part-way through a nod.
+    **`fire` places a beat, it does not start one.** A line's beats are all
+    handed over the instant the line starts speaking, each stamped with the
+    moment inside the line it belongs to, and this layer plays each when the
+    clock reaches it. That is the whole reason there is a schedule here rather
+    than a single slot: firing them all into one slot means the last beat in
+    the line silently overwrites every earlier one before any of them plays,
+    which cost a laugh its face on the first line that had both a laugh and a
+    nod in it. The face laughed on zero frames and the counter said two beats
+    fired.
 
-    A recorded clip for a beat wins over its procedural curve, and is played
-    as recorded rather than scaled by the shape function -- the performance
-    already has its own envelope, and putting a second one over it is what
-    turns a captured nod back into a described one.
+    The schedule is read off the same `now` the mouth and mood are read off --
+    no timers, no `asyncio.sleep` choreography. A nod half a second adrift
+    from its word reads as the character reacting to something else.
+
+    Two beats whose windows overlap do not blend: the later one wins outright.
+    A nod interrupted by a headshake should become a headshake, not a wobble,
+    and both curves are zero at both ends so the face is left where it was
+    found rather than part-way through a nod.
+
+    A recorded clip beats its procedural curve, and is played as recorded
+    rather than scaled by `shape` -- the performance has its own envelope, and
+    a second one over the top turns a captured nod back into a described one.
     """
 
     def __init__(self, clips: dict[str, np.ndarray] | None = None, fps: int = 60) -> None:
@@ -500,20 +538,52 @@ class BeatLayer:
         self._span = 0.0
         self._deltas: list[tuple[int, float]] = []
         self._clip: np.ndarray | None = None
+        self._pending: list[_Scheduled] = []
 
     def fire(self, name: str, at: float | None = None) -> bool:
+        """Place a beat at `at`. False if there is no such beat."""
         clip = self.clips.get(name)
         deltas = BEAT_INDEX.get(name)
         if clip is None and deltas is None:
             self.unknown += 1
             return False
-        self.name = name
-        self._clip = clip
-        self._deltas = deltas or []
-        self._span = len(clip) / self.fps if clip is not None else BEAT_SPAN[name]
-        self.started_at = at if at is not None else time.perf_counter()
+        span = len(clip) / self.fps if clip is not None else BEAT_SPAN[name]
+        moment = at if at is not None else time.perf_counter()
+        self._pending.append(_Scheduled(name, moment, span, deltas or [], clip))
+        # Kept in order so `apply` can stop at the first one still in the
+        # future rather than scanning the whole list every frame.
+        self._pending.sort(key=lambda beat: beat.at)
+        del self._pending[:-MAX_PENDING_BEATS]
         self.fired += 1
         return True
+
+    def clear(self) -> None:
+        """Forget everything scheduled and stop whatever is playing."""
+        self._pending.clear()
+        self._deltas = []
+        self._clip = None
+        self.name = ""
+
+    @property
+    def pending(self) -> int:
+        return len(self._pending)
+
+    def _promote(self, now: float) -> None:
+        """Start any beat whose moment has arrived, latest wins.
+
+        A beat whose whole window is already in the past is dropped rather
+        than played late: a tick that fell behind by half a second must not
+        make the character nod at a word that has been and gone.
+        """
+        while self._pending and self._pending[0].at <= now:
+            beat = self._pending.pop(0)
+            if now >= beat.at + beat.span:
+                continue
+            self.name = beat.name
+            self.started_at = beat.at
+            self._span = beat.span
+            self._deltas = beat.deltas
+            self._clip = beat.clip
 
     def shape(self, elapsed: float) -> float:
         """The curve, 0 at both ends so a beat always returns the face."""
@@ -535,6 +605,7 @@ class BeatLayer:
         return travel * travel * (3.0 - 2.0 * travel)
 
     def apply(self, out: np.ndarray, now: float) -> None:
+        self._promote(now)
         if self._clip is None and not self._deltas:
             return
         elapsed = now - self.started_at

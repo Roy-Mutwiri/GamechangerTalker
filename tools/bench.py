@@ -118,6 +118,27 @@ def report(results: list[Result], tick_seconds: float) -> None:
     print("-" * 86)
     print("  times in milliseconds; 'per sec' = sustained rate of that call alone")
 
+    face = [r for r in results if r.name.startswith(("face.", "livelink."))]
+    per_line = [r for r in results if r.name.startswith("per line:")]
+    if face:
+        print()
+        print("the 60fps face -- EVERY frame, against a 16.67 ms budget:")
+        for r in face:
+            print(
+                f"  {r.name:<32} worst {r.worst:6.3f} ms  "
+                f"{r.worst / 16.667 * 100:5.2f}% of a frame"
+            )
+    if per_line:
+        print()
+        print("built once when a line starts, not per frame:")
+        for r in per_line:
+            print(
+                f"  {r.name:<32} worst {r.worst:6.3f} ms  "
+                f"({r.worst / 16.667:.1f} frames if it lands badly)"
+            )
+        print("    it runs on the loop the moment playback begins, so its cost is")
+        print("    a frame or two at the top of a line, never a sustained rate")
+
     loop = [r for r in results if r.budget_ms is not None]
     if loop:
         total = sum(r.mean for r in loop)
@@ -249,6 +270,46 @@ def main() -> None:
                 if facts.get(k) is not None
             ],
             iterations=n,
+        )
+    )
+
+    # --- the character's 60fps face ---------------------------------------
+    #
+    # A different budget from everything above. The selection loop has two
+    # seconds; this has 16.7 ms, and shares them with a GC pause that has
+    # measured 12-19 ms on this machine. Composition has to be small enough
+    # that the pause is the only thing that ever costs a frame.
+    from narrator.avatar import face as face_mod
+    from narrator.avatar import livelink
+    from narrator.speech import phonemes as phoneme_tools
+
+    line = "Gold just swept the Asian low and now we wait, and that matters."
+    spans = phoneme_tools.from_text(line, 6.0)
+    track = livelink.mouth_track(spans, 6.0, 60)
+    composer = face_mod.FaceCompositor("Presenter", seed=7)
+    composer.mouth.speak_track(track, started_at=0.0, fps=60)
+    composer.mood.set("excited", hold=6.0, at=0.0)
+    ticks = {"t": 0}
+
+    def compose_frame() -> None:
+        ticks["t"] = (ticks["t"] + 1) % 360
+        composer.frame(ticks["t"] / 60.0, ticks["t"] / 60.0)
+
+    results.append(bench("face.compose_frame (61ch)", compose_frame, iterations=n))
+
+    frame = livelink.blank()
+    results.append(
+        bench(
+            "livelink.encode_frame (315B)",
+            lambda: livelink.encode_frame("Presenter", 0, frame),
+            iterations=n,
+        )
+    )
+    results.append(
+        bench(
+            "per line: mouth_track (6s)",
+            lambda: livelink.mouth_track(spans, 6.0, 60),
+            iterations=min(n, 400),
         )
     )
 

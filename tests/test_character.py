@@ -431,14 +431,19 @@ def test_a_recorded_clip_replaces_the_procedural_one(tmp_path):
     recorded = face_mod.FaceCompositor("P", seed=7, clips=clips)
     recorded.beat.fire("nod", at=0.0)
 
-    assert recorded.beat._span == pytest.approx(1.5, abs=0.05)
-    assert plain.beat._span != recorded.beat._span
-
     pitch = livelink.INDEX["HeadPitch"]
-    a = np.array([plain.frame(i / 60, i / 60).copy()[pitch] for i in range(120)])
-    b = np.array([recorded.frame(i / 60, i / 60).copy()[pitch] for i in range(120)])
+    a = np.array([plain.frame(i / 60, i / 60).copy()[pitch] for i in range(150)])
+    b = np.array([recorded.frame(i / 60, i / 60).copy()[pitch] for i in range(150)])
     assert not np.allclose(a, b)
     assert b.max() > 8.0
+
+    # The recorded clip is 90 frames at 60 fps; the procedural nod is 0.70s.
+    # The motion should last as long as the recording says, not as long as the
+    # curve says.
+    moving = np.flatnonzero(b > 1.0)
+    assert (moving[-1] - moving[0]) / 60 == pytest.approx(1.5, abs=0.15)
+    assert recorded.beat._span == pytest.approx(1.5, abs=0.05)
+    assert plain.beat._span != recorded.beat._span
 
 
 def test_a_clip_is_matched_by_channel_name_not_by_column_position(tmp_path):
@@ -492,5 +497,84 @@ async def test_every_beat_the_model_can_write_has_a_face(tmp_path):
             assert name in face_mod.BEAT_INDEX, f"{name} has no face"
             assert character.speaker.beat.fire(name, at=0.0), name
         assert character.speaker.beat.unknown == 0
+    finally:
+        await character.close()
+
+
+# ---------------------------------------------------------------------------
+# A line with more than one beat in it
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_every_beat_in_a_line_gets_its_moment():
+    """The bug the demo found, and the reason BeatLayer has a schedule.
+
+    A line's beats are all handed over the instant it starts speaking, each
+    stamped with the moment inside the line it belongs to. With a single slot,
+    the last beat overwrote every earlier one before any of them played: on
+    "[laugh] Yeah, that's the part nobody enjoys. [nod]" the counter said two
+    beats fired and MouthSmileLeft peaked at 0.00 across the whole line. The
+    face never laughed and nothing anywhere said so.
+    """
+    character = Character(config())
+    await character.start()
+    try:
+        utterance = Utterance(
+            "",
+            [
+                Beat(name="laugh", char_index=0, word_index=1),
+                Beat(name="nod", char_index=40, word_index=9),
+            ],
+        )
+        character.begin_utterance(utterance, None, 4.0, 0.0, spans=spans_for(4.0))
+        assert character.beats_fired == 2
+        assert character.speaker.beat.pending == 2, "both must still be waiting"
+
+        face = character.speaker
+        frames = np.array([face.frame(i / 60, i / 60).copy() for i in range(360)])
+        assert frames[:, livelink.INDEX["MouthSmileLeft"]].max() > 0.3, "no laugh"
+        assert frames[:, livelink.INDEX["HeadPitch"]].max() > 5.0, "no nod"
+    finally:
+        await character.close()
+
+
+@pytest.mark.asyncio
+async def test_a_beat_whose_moment_has_passed_is_dropped_not_played_late():
+    """A tick that fell behind must not make the character nod at a word that
+    has been and gone."""
+    character = Character(config())
+    await character.start()
+    try:
+        face = character.speaker
+        face.beat.fire("nod", at=0.0)
+        stale = face.frame(30.0, 30.0).copy()
+        assert abs(stale[livelink.INDEX["HeadPitch"]]) < 4.0
+        assert face.beat.pending == 0
+    finally:
+        await character.close()
+
+
+@pytest.mark.asyncio
+async def test_two_overlapping_beats_do_not_average_into_a_wobble():
+    """A nod interrupted by a headshake becomes a headshake. Blending them
+    produces a motion that is neither."""
+    character = Character(config())
+    await character.start()
+    try:
+        face = character.speaker
+        face.beat.fire("nod", at=0.0)
+        face.beat.fire("headshake", at=0.1)
+        frames = []
+        names = []
+        for i in range(90):
+            frames.append(face.frame(i / 60, i / 60).copy())
+            names.append(face.beat.name)
+        frames = np.array(frames)
+        assert frames[:, livelink.INDEX["HeadYaw"]].max() > 4.0, "the headshake lost"
+        # Mid-flight, one beat is running and it is the later one. `name` is
+        # cleared when the window closes, so the end of the run says nothing.
+        assert names[30] == "headshake", "the later beat must win outright"
+        assert "nod" not in names[20:], "the nod survived the interruption"
     finally:
         await character.close()

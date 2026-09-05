@@ -25,12 +25,21 @@ import asyncio
 import contextlib
 import logging
 import re
+import socket
 import sys
+import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 # A tag, a slot the renderer never filled, or a stage direction. Any of them
 # reaching this list means the audience heard it.
+#: The frame rate the face has to sustain for a whole soak. Below this an
+#: audience sees the character hitch, and the cause is upstream -- a GC
+#: pause, a synthesis stall -- rather than anything the sender can fix.
+FPS_FLOOR = 58.0
+
 UNSPEAKABLE = re.compile(r"[\[\]{}]|\*[a-z]+\*", re.I)
 
 
@@ -128,6 +137,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=0.0,
         help="override the allowed gap; 0 uses scheduler.max_silence_seconds + 2",
     )
+    p.add_argument(
+        "--character",
+        action="store_true",
+        help="drive the Unreal MetaHuman at a fake receiver inside this tool, "
+        "and report the frame rate it actually sustained",
+    )
     return p.parse_args(argv)
 
 
@@ -142,6 +157,92 @@ FAKE_TURNS = [
     "Nothing to do about it either way. That's most of this job.",
     "[bored] Twenty more minutes of watching a flat line, then.",
 ]
+
+
+class FakeReceiver:
+    """Unreal, for the purpose of finding out whether we can keep up.
+
+    A soak with the character enabled and nothing listening measures the
+    sender rather than the delivery. Binding a real socket makes it the
+    measurement that matters: frames that arrived, at the rate they arrived,
+    with the gaps and the out-of-range values counted on the way in.
+
+    Counts rather than keeps: thirty minutes at 60 fps is 108,000 frames and
+    every interesting number here is a scalar.
+    """
+
+    def __init__(self) -> None:
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 << 20)
+        self.sock.bind(("127.0.0.1", 0))
+        self.port = self.sock.getsockname()[1]
+        self.received = 0
+        self.subjects: set[str] = set()
+        self.gaps = 0
+        self.out_of_range = 0
+        self.repeats = 0
+        self.first_at = 0.0
+        self.last_at = 0.0
+        self._expected: dict[str, int] = {}
+        self._previous: dict[str, Any] = {}
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._read, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        with contextlib.suppress(OSError):
+            self.sock.close()
+        self._thread.join(timeout=2.0)
+
+    @property
+    def fps(self) -> float:
+        """Ticks a second, which is frames divided by however many seats."""
+        span = self.last_at - self.first_at
+        if span <= 0 or not self.subjects:
+            return 0.0
+        return self.received / span / len(self.subjects)
+
+    def _read(self) -> None:
+        from narrator.avatar.livelink import FIRST_ROTATION, decode_frame
+
+        self.sock.settimeout(0.5)
+        while not self._stop.is_set():
+            try:
+                data, _ = self.sock.recvfrom(4096)
+            except OSError:
+                continue
+            frame = decode_frame(data)
+            if frame is None:
+                continue
+            now = time.perf_counter()
+            if not self.received:
+                self.first_at = now
+            self.last_at = now
+            self.received += 1
+            self.subjects.add(frame.subject)
+
+            expected = self._expected.get(frame.subject)
+            if expected is not None and frame.frame_index != expected:
+                self.gaps += 1
+            self._expected[frame.subject] = frame.frame_index + 1
+
+            values = frame.values
+            if (
+                values[:FIRST_ROTATION].min() < -1e-6
+                or values[:FIRST_ROTATION].max() > 1.0 + 1e-6
+                or abs(values[FIRST_ROTATION:]).max() > 30.0 + 1e-6
+            ):
+                self.out_of_range += 1
+            previous = self._previous.get(frame.subject)
+            if previous is not None and bool((previous == values).all()):
+                # A face that sends the same 61 numbers twice running is a
+                # face that has stopped, and a still face is how an audience
+                # is told the thing has crashed.
+                self.repeats += 1
+            self._previous[frame.subject] = values
 
 
 class FakeBrain:
@@ -189,11 +290,28 @@ async def run(args: argparse.Namespace) -> int:
     logging.getLogger().setLevel(logging.INFO)
 
     watcher = Watcher()
+    receiver: FakeReceiver | None = None
+    if args.character:
+        # Enabled here rather than in config.toml, so the gate is one flag
+        # and not an edit an operator has to remember to undo. --silent
+        # implies --dry-run, which turns the character off for the same
+        # reason it turns Warudo off: there is no audio for a face to be in
+        # sync with. `_patched` puts it back after construction, because
+        # setting it here is not enough -- the dry-run gate is applied in
+        # Narrator.__init__ and wins over config either way.
+        receiver = FakeReceiver()
+        receiver.start()
+        cfg.character.enabled = True
+        cfg.character.livelink.host = "127.0.0.1"
+        cfg.character.livelink.port = receiver.port
+        cfg.character.unreal.transport = "none"
     print(
         f"soak: {args.minutes:.0f} minutes, "
         f"{'fake' if args.fake_brain else cfg.hosts.backend} brain, "
         f"{'silent' if args.silent else 'real speech'}, "
-        f"allowed silence {allowed:.0f}s\n"
+        f"allowed silence {allowed:.0f}s"
+        + (f", character -> 127.0.0.1:{receiver.port}" if receiver else "")
+        + "\n"
     )
 
     from narrator import main as app
@@ -225,7 +343,9 @@ async def run(args: argparse.Namespace) -> int:
             recorder.errors.append(f"uncaught {exc.__class__.__name__}: {exc}")
             exit_code = 1
 
-    return report(recorder, watcher, allowed, exit_code, judge_silence)
+    if receiver is not None:
+        receiver.stop()
+    return report(recorder, watcher, allowed, exit_code, judge_silence, receiver)
 
 
 @contextlib.contextmanager
@@ -240,6 +360,7 @@ def _patched(app, args, watcher: Watcher):
 
     original_speak = app.Narrator._speak
     original_backend = hosts.build_backend
+    original_init = app.Narrator.__init__
 
     async def watched(self, now, utterance):
         # `now` is the adapter's clock -- the same one the scheduler measures
@@ -247,13 +368,25 @@ def _patched(app, args, watcher: Watcher):
         watcher.note(now, utterance.text, utterance.source)
         return await original_speak(self, now, utterance)
 
+    def built(self, cfg, adapter, library, speech_log, cli_args):
+        original_init(self, cfg, adapter, library, speech_log, cli_args)
+        if args.character:
+            # `--silent` is `--dry-run`, and the constructor turns the
+            # character off there because there is normally no audio to be
+            # in sync with. The soak wants the frame pump measured anyway,
+            # so it is switched back on after the gate rather than by
+            # loosening the gate for everybody.
+            self.character.enabled = cfg.character.enabled
+
     app.Narrator._speak = watched
+    app.Narrator.__init__ = built
     if args.fake_brain:
         hosts.build_backend = lambda cfg: FakeBrain()
     try:
         yield
     finally:
         app.Narrator._speak = original_speak
+        app.Narrator.__init__ = original_init
         hosts.build_backend = original_backend
 
 
@@ -263,6 +396,7 @@ def report(
     allowed: float,
     exit_code: int,
     judge_silence: bool = True,
+    receiver: FakeReceiver | None = None,
 ) -> int:
     problems: list[str] = []
     print("\n" + "=" * 70)
@@ -275,6 +409,31 @@ def report(
     print(f"  longest silence         {gap:.1f}s (allowed {allowed:.0f}s, market clock)")
     print(f"  ERROR records           {len(recorder.errors)}")
     print(f"  WARNING records         {len(recorder.warnings)}")
+
+    if receiver is not None:
+        print(
+            f"  face frames received    {receiver.received:,} across "
+            f"{len(receiver.subjects)} subject(s)"
+        )
+        print(
+            f"  sustained frame rate    {receiver.fps:.1f} fps "
+            f"(the bar is {FPS_FLOOR:.0f})"
+        )
+        print(f"  timeline gaps           {receiver.gaps}")
+        print(f"  values out of range     {receiver.out_of_range}")
+        print(f"  frames identical to the previous  {receiver.repeats}")
+        if not receiver.received:
+            problems.append("the character sent nothing at all")
+        elif receiver.fps < FPS_FLOOR:
+            problems.append(
+                f"the face sustained {receiver.fps:.1f} fps, under the "
+                f"{FPS_FLOOR:.0f} fps floor"
+            )
+        if receiver.out_of_range:
+            problems.append(
+                f"{receiver.out_of_range} frame(s) carried a value outside "
+                "0-1 or +/-30 degrees"
+            )
 
     if exit_code != 0:
         problems.append(f"the narrator exited {exit_code}")
