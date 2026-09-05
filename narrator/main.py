@@ -34,6 +34,7 @@ from datetime import datetime
 from typing import Any
 
 from narrator.avatar import duet, scene
+from narrator.avatar.character import Character
 from narrator.avatar.emotes import EmoteDirector
 from narrator.avatar.warudo import WarudoBridge
 from narrator.config import AvatarEntry, Config, load_config, project_root
@@ -125,6 +126,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--no-avatar", action="store_true", help="do not connect to Warudo"
+    )
+    parser.add_argument(
+        "--no-character",
+        action="store_true",
+        help="do not drive the Unreal MetaHuman (--no-avatar still means Warudo)",
     )
     parser.add_argument("--mute", action="store_true", help="start muted")
     parser.add_argument(
@@ -256,6 +262,14 @@ class Narrator:
         self.engine = build_engine(cfg, silent=self.dry_run)
         self.playback = Playback(cfg)
         self.bridge = WarudoBridge(cfg, enabled=not args.no_avatar and not self.dry_run)
+        # The other renderer. Both can run at once -- they consume the same
+        # utterances, emotes and beats -- so an operator can watch a VRM and a
+        # MetaHuman side by side and decide which the audience sees. Inert
+        # unless [character] enabled, in which case nothing below the
+        # constructor costs anything.
+        self.character = Character(
+            cfg, enabled=not args.no_character and not self.dry_run
+        )
         self.emotes = EmoteDirector(cfg)
 
         self.ui: Dashboard | None = None
@@ -497,6 +511,7 @@ class Narrator:
             emote = self.emotes.evaluate(now, facts)
             if emote is not None:
                 self.bridge.send_emote(emote.name, emote.hold)
+                self.character.emote(emote.name, emote.hold, channel="market")
                 if self.web is not None:
                     self.web.send_emote(emote.name, emote.hold, emote.reason)
 
@@ -612,10 +627,12 @@ class Narrator:
         if waiting >= self.cfg.hosts.thinking_after_seconds and not self._thinking:
             self._thinking = True
             self.bridge.send_emote("bored", hold=2.5, channel="conversation")
+            self.character.set_thinking(True)
             if self.web is not None:
                 self.web.send_emote("thinking", 2.5, "writing a turn")
         elif self._thinking and (waiting == 0.0 or self.hosts.has_ready_turn()):
             self._thinking = False
+            self.character.set_thinking(False)
     def _host_utterance(self, turn: Any, facts: dict) -> Utterance:
         from narrator.script import expression
 
@@ -733,6 +750,7 @@ class Narrator:
         # out. With one character on stage this is a no-op.
         if self.duet_stage:
             self.bridge.speak_as(utterance.stage_index)
+            self.character.speak_as(utterance.stage_index)
 
         started_at = time.perf_counter()
         played = 0.0
@@ -741,7 +759,15 @@ class Narrator:
             if played:
                 duration = played
 
-        frames = self._viseme_frames(speech, utterance.text, duration)
+        # The MetaHuman's mouth, mood, body and beats -- all from the same
+        # `started_at` stamp the visemes are paced against. Handed the spans
+        # the viseme path already resolved rather than resolving them twice:
+        # two answers to "when is this phoneme" is two mouths.
+        spans = self._spans_for(speech, utterance.text, duration)
+        self.character.begin_utterance(
+            utterance, speech, duration, started_at, spans=spans
+        )
+        frames = self._viseme_frames(speech, utterance.text, duration, spans=spans)
         if self.web is not None and frames:
             # The whole track at once; the browser animates it on its own
             # clock, which is smoother than sixty messages a second.
@@ -790,6 +816,7 @@ class Narrator:
             if remaining > 0:
                 await asyncio.sleep(remaining / max(1.0, self.adapter.time_scale))
 
+        self.character.end_utterance()
         # Stamped when the mouth stops, not when it started: a reply gap is the
         # silence between two people, not the length of what was just said.
         self._last_spoken_at = self.adapter.now()
@@ -904,6 +931,7 @@ class Narrator:
         # noise, which is more jarring than no noise at all.
         if self.duet_stage:
             self.bridge.speak_as(utterance.stage_index)
+            self.character.speak_as(utterance.stage_index)
         # Without the trim this plays the word and then its padding, and the
         # padding is the very silence being covered.
         audio = trim_tail(sound.audio, sound.sample_rate)
@@ -912,10 +940,13 @@ class Narrator:
         started_at = time.perf_counter()
         self.playback.play(audio, sound.sample_rate)
         self.handovers_covered += 1
-        frames = self._viseme_frames(sound, text, duration)
+        spans = self._spans_for(sound, text, duration)
+        self.character.begin_utterance(utterance, sound, duration, started_at, spans=spans)
+        frames = self._viseme_frames(sound, text, duration, spans=spans)
         if frames and self.bridge.enabled:
             await self.bridge.play(frames, started_at)
         await self.playback.wait()
+        self.character.end_utterance()
 
     def _schedule_beats(self, utterance, speech, duration: float, started_at: float) -> None:
         """Fire each beat at the word it was written against.
@@ -954,12 +985,29 @@ class Narrator:
         except Exception as exc:  # a nod is never worth losing a line over
             log.debug("beat %s failed: %s", name, exc)
 
-    def _viseme_frames(self, speech, text: str, duration: float):
+    def _spans_for(self, speech, text: str, duration: float) -> list:
+        """Phoneme timing for this line: Kokoro's if it has it, else weighted.
+
+        Resolved once and handed to both renderers. Two calls would be two
+        answers on a proportional fallback -- `from_text` is deterministic,
+        but the VRM mouth and the ARKit mouth agreeing by coincidence rather
+        than by construction is not a property worth relying on.
+        """
         try:
             spans = phoneme_tools.extract(speech) if speech is not None else []
-            if not spans:
-                spans = phoneme_tools.from_text(text, duration)
-            return viseme_tools.stream(spans, duration, fps=self.cfg.warudo.viseme_fps)
+            return spans or phoneme_tools.from_text(text, duration)
+        except Exception:
+            log.exception("phoneme timing failed")
+            return []
+
+    def _viseme_frames(self, speech, text: str, duration: float, spans=None):
+        try:
+            resolved = spans if spans is not None else self._spans_for(
+                speech, text, duration
+            )
+            return viseme_tools.stream(
+                resolved, duration, fps=self.cfg.warudo.viseme_fps
+            )
         except Exception:
             log.exception("viseme generation failed")
             return []
@@ -1170,6 +1218,10 @@ class Narrator:
         self.duet_stage = True
         self.hosts.set_paused(False)
         self.scheduler.density_override = self.cfg.hosts.podcast_density
+        # A second seat on the Unreal stage as well: the MetaHuman pair are
+        # two Live Link subjects, and the second one is not streamed at all
+        # until there is somebody in it.
+        self.character.set_stage(2)
 
     def build_duet_stage(self) -> None:
         """Put both hosts on screen. Called at startup and by the toggle."""
@@ -1399,6 +1451,7 @@ class Narrator:
             "voice": self.cfg.speech.voice,
             "audio": self.playback.device_name if self.playback.available else "off",
             "warudo": self.bridge.status(),
+            "character": self.character.status(),
             "chart": self._chart_status(),
             "cache": f"{self.engine.cache.hit_rate * 100:.0f}%",
             "density": f"{density * 100:.0f}%",
@@ -1636,6 +1689,11 @@ async def run_async(cfg: Config, args: argparse.Namespace, use_dashboard: bool) 
     ]
     if narrator.bridge.enabled:
         tasks.append(asyncio.create_task(narrator.bridge.start(), name="warudo"))
+    # NOT a lifecycle task: `tasks` is awaited with FIRST_COMPLETED, so
+    # anything that finishes there ends the run. The character owns its own
+    # frame pump and drain task and stops them in close(); a Live Link socket
+    # going away must cost the stream a face, never the stream.
+    await narrator.character.start()
     # Two hosts need two characters when there is a stage to put them on, and
     # the conversation's own speech budget whether or not there is. Built before
     # the first line, so a scene reload does not interrupt anyone mid-sentence.
@@ -1683,6 +1741,7 @@ async def run_async(cfg: Config, args: argparse.Namespace, use_dashboard: bool) 
         narrator.stop()
         await adapter.stop()
         await narrator.bridge.stop()
+        await narrator.character.close()
         if capture is not None:
             capture.stop()
         if web is not None:

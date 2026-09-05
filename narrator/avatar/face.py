@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import Protocol
 
 import numpy as np
@@ -408,6 +409,73 @@ OSCILLATING = {"headshake": 2.0, "laugh": 3.0, "chuckle": 2.0}
 BEAT_PEAK = 0.33
 
 
+def load_clips(directory: Path | str) -> dict[str, np.ndarray]:
+    """Recorded clips from `clips/<beat>.csv`, keyed by beat name.
+
+    Optional, always. Every beat has a procedural curve and a missing
+    directory is the normal case, not a warning -- but a nod performed by a
+    person is better than a nod described by a sine, and `tools/record_clip.py`
+    is thirty seconds with a phone.
+
+    The format is the Live Link Face app's own CSV export, so a clip recorded
+    on the phone and one captured by that tool are the same file. A malformed
+    one is logged and skipped rather than raised: a bad clip should cost its
+    own gesture, not the stream.
+    """
+    path = Path(directory)
+    if not path.is_dir():
+        return {}
+    clips: dict[str, np.ndarray] = {}
+    for csv in sorted(path.glob("*.csv")):
+        try:
+            frames = _read_clip(csv)
+        except Exception as exc:
+            log.warning("ignoring clip %s: %s", csv.name, exc)
+            continue
+        if len(frames) < 2:
+            log.warning(
+                "ignoring clip %s: %d frames is not a gesture", csv.name, len(frames)
+            )
+            continue
+        clips[csv.stem] = frames
+    if clips:
+        log.info(
+            "recorded clips override the procedural ones: %s", ", ".join(sorted(clips))
+        )
+    return clips
+
+
+def _read_clip(path: Path) -> np.ndarray:
+    """One CSV to an (N, 61) array, columns matched by NAME not by position.
+
+    The app's export has a Timecode and a BlendshapeCount before the values,
+    and reordering or omitting a channel is a thing exporters do between
+    versions. Matching by name means a clip recorded on a different build
+    animates the channels it says it animates.
+    """
+    rows: list[np.ndarray] = []
+    with path.open(encoding="utf-8-sig") as fh:
+        header = [cell.strip() for cell in fh.readline().split(",")]
+        columns = {name.lower(): i for i, name in enumerate(header)}
+        wanted = [columns.get(name.lower()) for name in livelink.LIVELINK_NAMES]
+        if all(index is None for index in wanted):
+            raise ValueError("no Live Link channel names in the header row")
+        for line in fh:
+            cells = line.split(",")
+            if len(cells) < len(header):
+                continue  # a truncated final row, which a killed export leaves
+            frame = livelink.blank()
+            for channel, index in enumerate(wanted):
+                if index is None:
+                    continue
+                try:
+                    frame[channel] = float(cells[index])
+                except ValueError:
+                    frame[channel] = 0.0
+            rows.append(frame)
+    return np.array(rows, dtype=np.float32) if rows else np.zeros((0, 61), np.float32)
+
+
 class BeatLayer:
     """One beat at a time, replacing whatever was still running.
 
@@ -415,24 +483,34 @@ class BeatLayer:
     fix is not to blend them: a nod interrupted by a headshake should become a
     headshake, not a wobble. Both curves are zero at both ends, so a replaced
     beat leaves the face where it found it rather than part-way through a nod.
+
+    A recorded clip for a beat wins over its procedural curve, and is played
+    as recorded rather than scaled by the shape function -- the performance
+    already has its own envelope, and putting a second one over it is what
+    turns a captured nod back into a described one.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, clips: dict[str, np.ndarray] | None = None, fps: int = 60) -> None:
         self.name = ""
         self.started_at = 0.0
         self.fired = 0
         self.unknown = 0
+        self.clips = dict(clips or {})
+        self.fps = max(1, int(fps))
         self._span = 0.0
         self._deltas: list[tuple[int, float]] = []
+        self._clip: np.ndarray | None = None
 
     def fire(self, name: str, at: float | None = None) -> bool:
+        clip = self.clips.get(name)
         deltas = BEAT_INDEX.get(name)
-        if deltas is None:
+        if clip is None and deltas is None:
             self.unknown += 1
             return False
         self.name = name
-        self._span = BEAT_SPAN[name]
-        self._deltas = deltas
+        self._clip = clip
+        self._deltas = deltas or []
+        self._span = len(clip) / self.fps if clip is not None else BEAT_SPAN[name]
         self.started_at = at if at is not None else time.perf_counter()
         self.fired += 1
         return True
@@ -457,13 +535,25 @@ class BeatLayer:
         return travel * travel * (3.0 - 2.0 * travel)
 
     def apply(self, out: np.ndarray, now: float) -> None:
-        if not self._deltas:
+        if self._clip is None and not self._deltas:
             return
         elapsed = now - self.started_at
+        if elapsed < 0.0:
+            return
         if elapsed > self._span:
             self._deltas = []
+            self._clip = None
             self.name = ""
             return
+
+        if self._clip is not None:
+            # Added, not assigned: a recorded nod is a head moving, and the
+            # idle layer's drift and whatever mood is running are still true
+            # underneath it. Assigning would make every recorded beat a hard
+            # cut to a different face.
+            out += self._clip[min(int(elapsed * self.fps), len(self._clip) - 1)]
+            return
+
         amount = self.shape(elapsed)
         if amount == 0.0:
             return
@@ -489,12 +579,14 @@ class FaceCompositor:
         *,
         seed: int = 7,
         moods: dict[str, list[tuple[int, float]]] | None = None,
+        clips: dict[str, np.ndarray] | None = None,
+        fps: int = 60,
     ) -> None:
         self.subject = subject
         self.idle = livelink.IdleLayer(seed=seed)
         self.mouth = MouthLayer()
         self.mood = MoodLayer(moods)
-        self.beat = BeatLayer()
+        self.beat = BeatLayer(clips, fps)
         self._out = livelink.blank()
 
     @property
