@@ -659,6 +659,8 @@ class FaceCompositor:
         self.mood = MoodLayer(moods)
         self.beat = BeatLayer(clips, fps)
         self._out = livelink.blank()
+        # Scratch for holding the mouth group across the mood layer.
+        self._mouth_hold = np.zeros(len(livelink.MOUTH_INDICES), dtype=np.float32)
 
     @property
     def speaking(self) -> bool:
@@ -676,8 +678,24 @@ class FaceCompositor:
         at = now if now is not None else time.perf_counter()
         out = self._out
         np.copyto(out, self.idle.frame(t))
-        self.mouth.apply(out, at)
-        self.mood.apply(out, at)
+        speaking = self.mouth.apply(out, at)
+        if speaking:
+            # The mood is added on top of everything, which is right for a
+            # brow and wrong for a jaw. `surprised` contributes JawOpen 0.12,
+            # and a jaw held a tenth open through a whole line means the lips
+            # never actually meet on /p/, /b/ or /m/ -- the one cue
+            # speech/visemes.py calls the loudest there is, and one a viewer
+            # notices instantly without being able to name it.
+            #
+            # So the mouth group is held across the mood: a phoneme's jaw is
+            # an absolute statement about where the jaw is, and nothing that
+            # is not the phonemes may move it while somebody is speaking. In
+            # silence the mood owns the whole face, jaw included.
+            self._mouth_hold[:] = out[livelink.MOUTH_INDICES]
+            self.mood.apply(out, at)
+            out[livelink.MOUTH_INDICES] = self._mouth_hold
+        else:
+            self.mood.apply(out, at)
         self.beat.apply(out, at)
         return livelink.clamp(out)
 

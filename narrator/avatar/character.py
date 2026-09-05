@@ -53,6 +53,16 @@ BEAT_GESTURES: dict[str, str] = {
     "laugh": "laugh",
 }
 
+#: Beats that are a SOUND, and the `performance.Beat.kind` that carries them.
+#: `expression.BEAT_AS_SOUND` maps these to the markup; this maps them to what
+#: the delivery actually built, so the face can be timed off the audio rather
+#: than off the tag that asked for it.
+SOUND_BEAT_KINDS: dict[str, str] = {
+    "laugh": "chuckle",
+    "chuckle": "chuckle",
+    "sigh": "out",
+}
+
 
 class Character:
     """One MetaHuman, or two when the pair are on stage.
@@ -260,7 +270,8 @@ class Character:
 
         beats = list(getattr(utterance, "beats", None) or [])
         if beats:
-            self._schedule_beats(beats, resolved, utterance, duration, started_at)
+            sounds = list(getattr(speech, "sounds", None) or [])
+            self._schedule_beats(beats, resolved, utterance, duration, started_at, sounds)
 
     def end_utterance(self) -> None:
         """The mouth stops. The mood is left to decay on its own envelope."""
@@ -354,21 +365,51 @@ class Character:
         utterance: Any,
         duration: float,
         started_at: float,
+        sounds: list[tuple[str, float, float]] | None = None,
     ) -> None:
-        """Every beat placed at the word it was written against.
+        """Every beat placed at the moment it actually happens.
 
         Sound beats included, which is the difference from the Warudo path.
         `main.py` schedules only the gestures there, because a laugh is
-        already in the waveform -- but the *face* of a laugh is not in
-        anything, and it has to land on the same moment the audio does.
+        already in the waveform -- but the *face* of a laugh is in nothing,
+        and it has to land on the same instant the audio does.
+
+        **For a laugh, a chuckle or a sigh, the delivery's own beat wins.**
+        `performance.plan` decided where that sound goes and `_render` built
+        the audio around it, so its offset is where the laugh IS; the tag's
+        word index is only where the laugh was ASKED for, and the two differ
+        by however much the clause splitting and the pauses moved. Timing a
+        laughing face off the tag puts the laugh on the face a fifth of a
+        second from the laugh in the ear, which is exactly the sort of
+        mismatch an audience cannot name and does not forgive.
         """
         words = max(1, len(str(getattr(utterance, "text", "")).split()))
+        available = list(sounds or [])
         for beat in beats:
             name = getattr(beat, "name", "")
             if not name:
                 continue
-            at = expression.beat_time(beat, spans, duration, words)
+            at = self._sound_time(name, available)
+            if at is None:
+                at = expression.beat_time(beat, spans, duration, words)
             self.gesture(name, started_at + at)
+
+    def _sound_time(
+        self, name: str, available: list[tuple[str, float, float]]
+    ) -> float | None:
+        """When the audio for this beat starts, if the delivery made one.
+
+        Consumed as it is matched, so two chuckles in one line take the first
+        and the second rather than both taking the first.
+        """
+        wanted = SOUND_BEAT_KINDS.get(name)
+        if wanted is None:
+            return None
+        for index, (kind, start, _span) in enumerate(available):
+            if kind == wanted:
+                available.pop(index)
+                return start
+        return None
 
     # -- status -------------------------------------------------------------
 

@@ -98,6 +98,15 @@ class Speech:
     # timing -- and cache hits are meant to be the common case.
     spans: list[Any] = field(default_factory=list)
     timing: str = "unknown"
+    # Where the non-speech beats ended up in the joined audio: (kind, start,
+    # duration) per laugh, chuckle or breath, in seconds from the first sample.
+    #
+    # Only a stitched delivery has these, and only main.py's _render can know
+    # them -- the offsets fall out of concatenating the pieces and are gone by
+    # the time anything downstream sees a waveform. The face of a laugh has to
+    # land on the laugh, and the beat is the truth: the tag was merely its
+    # cause, and the tag's word index is a guess at where the audio put it.
+    sounds: list[tuple[str, float, float]] = field(default_factory=list)
     from_cache: bool = False
     synthesis_seconds: float = 0.0
 
@@ -369,9 +378,7 @@ class KokoroEngine(SpeechEngine):
         if cached is not None:
             return cached
         try:
-            speech = await asyncio.to_thread(
-                self._synthesize_blocking, text, rate, who
-            )
+            speech = await asyncio.to_thread(self._synthesize_blocking, text, rate, who)
         except Exception as exc:
             # One bad utterance must never take the stream down.
             self.failures += 1

@@ -851,6 +851,12 @@ class Narrator:
 
             pieces: list[Any] = []
             spans: list[PhonemeSpan] = []
+            # Where each laugh and breath actually lands in the joined
+            # audio. Nothing downstream can work this out -- the offsets
+            # fall out of the concatenation and are gone by the time there
+            # is a waveform -- and the MetaHuman's face has to laugh on the
+            # laugh rather than near it.
+            sounds: list[tuple[str, float, float]] = []
             rate_hz = self.cfg.speech.sample_rate
             offset = 0.0
 
@@ -870,8 +876,11 @@ class Narrator:
                 else:
                     audio = performance.breath(beat.kind, rate_hz)
 
+                seconds = len(audio) / rate_hz
+                if beat.kind != "speech":
+                    sounds.append((beat.kind, offset, seconds))
                 pieces.append(audio)
-                offset += len(audio) / rate_hz
+                offset += seconds
                 if beat.pause_after:
                     quiet = performance.silence(beat.pause_after, rate_hz)
                     pieces.append(quiet)
@@ -887,6 +896,7 @@ class Narrator:
                 duration=len(joined) / rate_hz,
                 spans=spans,
                 timing="stitched",
+                sounds=sounds,
             )
         except Exception:
             log.exception("stitched delivery failed; falling back to one piece")
