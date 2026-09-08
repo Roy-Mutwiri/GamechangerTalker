@@ -30,8 +30,33 @@ if (-not $iscc) {
     exit 1
 }
 
+# The icon is committed, so this normally does nothing. It exists because
+# SetupIconFile makes the build fail without the file, and "cannot open file"
+# from a compiler is a worse thing to read than the name of the script that
+# draws it.
+$Icon = Join-Path $PSScriptRoot "GamechangerTalker.ico"
+if (-not (Test-Path $Icon)) {
+    Write-Host "icon missing; drawing it" -ForegroundColor Yellow
+    $py = Join-Path $Root ".venv\Scripts\python.exe"
+    if (-not (Test-Path $py)) {
+        $found = Get-Command python -ErrorAction SilentlyContinue
+        $py = if ($found) { $found.Source } else { "" }
+    }
+    if (-not $py) {
+        Write-Host "No Python to run installer\make_icon.py with." -ForegroundColor Red
+        Write-Host "Restore installer\GamechangerTalker.ico from git, or run that script." -ForegroundColor Yellow
+        exit 1
+    }
+    & $py (Join-Path $PSScriptRoot "make_icon.py")
+    if (-not (Test-Path $Icon)) {
+        Write-Host "make_icon.py did not produce an icon" -ForegroundColor Red
+        exit 1
+    }
+}
+
 Write-Host "compiler : $iscc" -ForegroundColor DarkGray
 Write-Host "script   : $Script" -ForegroundColor DarkGray
+Write-Host "icon     : $Icon" -ForegroundColor DarkGray
 
 if (-not (Test-Path $Dist)) { New-Item -ItemType Directory -Path $Dist | Out-Null }
 

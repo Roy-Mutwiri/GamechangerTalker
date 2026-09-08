@@ -117,10 +117,27 @@ Output is `dist\GamechangerTalkerSetup.exe`.
 | `installer/setup.ps1` | Installs the dependencies. Idempotent -- safe to re-run. |
 | `installer/launch.ps1` | What the shortcuts point at. Finishes setup if needed, starts MetaTrader if it is closed. |
 | `installer/build.ps1` | Builds the exe |
+| `installer/make_icon.py` | Draws `GamechangerTalker.ico` |
 
 `setup.ps1` reads the model names out of `config.toml` rather than hardcoding
 them, so changing the model in config does not leave every new machine pulling
 the old one.
+
+The icon is committed, so a fresh clone builds without running anything else;
+`build.ps1` redraws it only if the file has gone missing. It is generated
+rather than kept as an opaque binary so it can be adjusted rather than only
+replaced — every colour and coordinate is a named constant at the top of
+`make_icon.py`, and the output is deterministic, so a change to one number is
+a reviewable diff. There is no image library involved: the shapes are
+supersampled analytically and the ICO container is written by hand, because
+adding Pillow to ship one icon is a poor trade.
+
+The design is decided by 16×16 — the taskbar, Explorer's detail view, Start
+Menu search — which is where most icons turn to mush. Hence a bold silhouette
+(a gold speech bubble on a dark square) and axis-aligned bars rather than a
+stroked chart line: a shallow stroke smears across six pixels while a steep
+one covers two, so the same line reads as a wedge at one end and a hairline at
+the other.
 
 
 ---
